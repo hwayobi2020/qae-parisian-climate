@@ -1,79 +1,84 @@
 # QAE-Parisian-Climate
 
-Robust Quantum Pricing of Path-Dependent Climate Derivatives under Parameter Uncertainty
+Importance-Sampled Quantum Amplitude Estimation for Parisian Climate Derivatives
 
 ## Overview
 
-기후 파생상품(특히 대기강 기반)의 가격 책정을 위한 양자 진폭 추정(QAE) 프레임워크.
-Parisian 옵션 구조와 파라미터 불확실성을 동시에 다룸.
+Atmospheric River (AR) insurance pricing using four progressively efficient methods:
 
-## Key Ideas
+**Naive MC → IS-MC (Glasserman) → QAE → IS-QAE**
 
-### 1. Parisian Option Structure
-- 대기강(AR)은 **지속시간(duration)**이 피해 규모 결정
-- IVT ≥ 250 kg/m/s가 **연속 48시간** 이상 → AR 트리거
-- 이는 금융의 Parisian barrier option과 동일한 구조
+The core contribution is the first quantum oracle for **Parisian conditions** (consecutive-duration barriers), combined with importance sampling for rare-event acceleration.
 
-### 2. Stochastic Model
-- IVT를 Ornstein-Uhlenbeck 과정으로 모델링
-- `dIVT = κ(θ(t) - IVT)dt + σdW`
-- 평균 회귀(mean reversion) 특성 반영
+## Key Results
 
-### 3. Parameter Uncertainty
-- 기후 데이터의 calibration 불확실성 존재
-- 파라미터 범위 [κ_min, κ_max] × [σ_min, σ_max]
-- **Robust pricing**: 가격의 상한/하한 동시 추정
+### Parisian Oracle (verified)
+- Borrow-chain comparator, reversible consecutive counter, OR-latch
+- Bennett's pebble game: **340 qubits** (vs 1,543 naive) for T=192 steps
+- Qiskit Aer verification: 50.62% vs expected 50.00%
 
-### 4. Quantum Advantage
-- Classical Monte Carlo: O(K × L × 1/ε²)
-- QAE with parameter space: O(√(K×L) / ε) (목표)
+### JD-OU Model (calibrated to ERA5)
+- 44 years of IVT data (1980-2023), SF coast, 6-hourly
+- Jump-Diffusion O-U: kappa=0.767, theta=85.8, sigma=62
+- AR events: lambda=0.108/day (39.5/yr), mu_peak=390.5, tau=0.69 days
+
+### Complexity
+
+| Method | Qubits | Cost |
+|--------|--------|------|
+| Naive MC | 0 | O(T / epsilon^2) |
+| IS-MC | 0 | O(T * sigma_IS^2 / epsilon^2) |
+| QAE | O(sqrt(T)*n + T) | O(T^{3/2} / epsilon) |
+| IS-QAE | O(sqrt(T)*n + T) | O(T^{3/2} * sigma_IS / epsilon) |
 
 ## Project Structure
 
 ```
 qae-parisian-climate/
 ├── src/
-│   ├── models/           # Stochastic models (O-U, etc.)
-│   ├── quantum/          # QAE circuits and oracles
-│   ├── classical/        # Monte Carlo baseline
-│   └── data/             # Data processing (IVT, CW3E)
-├── notebooks/            # Experiments and analysis
-├── tests/                # Unit tests
-├── docs/                 # Documentation and paper drafts
+│   ├── models/
+│   │   ├── ornstein_uhlenbeck.py   # Base O-U process
+│   │   ├── jump_diffusion_ou.py    # JD-OU (two-regime AR model)
+│   │   └── parisian.py             # Parisian condition checker + MC pricing
+│   ├── quantum/
+│   │   └── parisian_oracle.py      # Quantum oracle + pebble game + complexity
+│   └── classical/
+│       └── robust_mc.py            # Robust MC over parameter ranges
+├── data/
+│   └── raw/                        # ERA5 IVT NetCDF files (1980-2023)
+├── docs/
+│   └── paper_outline.md            # Full paper structure
+├── notebooks/
+├── tests/
 └── requirements.txt
 ```
 
-## Technical Challenges
+## Data
 
-### Oracle Design
-- Parisian 조건 (연속 duration)을 양자 회로로 구현
-- 연속 카운트 리셋 로직의 가역성(reversibility) 유지
-- 게이트 복잡도: O(T) vs O(log T)?
-
-### State Preparation
-- O-U 과정의 비정규 분포 인코딩
-- 파라미터 공간의 양자 상태 준비
-
-## Data Sources
-
-| Source | Description |
-|--------|-------------|
-| [CW3E](https://cw3e.ucsd.edu/) | AR Scale, IVT forecasts |
-| ERA5 | Historical reanalysis (1979~) |
-| MERRA-2 | NASA reanalysis |
+- **Source**: ERA5 CDS (Copernicus Climate Data Store)
+- **Variables**: viwve, viwvn (eastward/northward vapor transport)
+- **Region**: California coast [40N-34N, 130W-120W]
+- **Period**: 1980-2023, 6-hourly (64,284 observations at SF point)
+- **IVT**: sqrt(viwve^2 + viwvn^2), threshold >= 250 kg/m/s for AR
 
 ## References
 
-- Parisian Options: Chesney et al. (1997)
-- QAE: Brassard et al. (2002)
-- AR Scale: Ralph et al. (2019)
-- Weather Derivatives O-U: Benth & Šaltytė-Benth (2007)
-- Robust Option Pricing: Avellaneda et al. (1995)
+- Chesney et al. (1997): Parisian barrier options
+- Glasserman (2003): Monte Carlo Methods in Financial Engineering
+- Stamatopoulos et al. (2020): Option pricing using quantum computers
+- Bennett (1989): Time/space tradeoffs for reversible computation
+- Merton (1976): Jump-diffusion option pricing
+- Ralph et al. (2019): AR Scale
 
 ## Status
 
-🚧 Research in progress
-
-## License
-
-TBD
+| Phase | Status |
+|-------|--------|
+| ERA5 data acquisition | DONE |
+| JD-OU calibration | DONE |
+| Parisian oracle design | DONE |
+| Oracle verification (Qiskit) | DONE |
+| Glasserman IS | TODO |
+| IS-QAE state preparation | TODO |
+| Numerical experiments | TODO |
+| Paper writing | TODO |
