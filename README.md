@@ -1,84 +1,131 @@
 # QAE-Parisian-Climate
 
+**중요도 샘플링 기반 양자 진폭 추정을 활용한 파리지앵 기후 파생상품 가격 결정**
+
 Importance-Sampled Quantum Amplitude Estimation for Parisian Climate Derivatives
 
-## Overview
+---
 
-Atmospheric River (AR) insurance pricing using four progressively efficient methods:
+## 왜 이 연구가 필요한가
 
-**Naive MC → IS-MC (Glasserman) → QAE → IS-QAE**
+### 대기강(Atmospheric River)과 기후 재해
 
-The core contribution is the first quantum oracle for **Parisian conditions** (consecutive-duration barriers), combined with importance sampling for rare-event acceleration.
+캘리포니아는 연간 강수량의 30-50%를 대기강(AR)에서 얻는다. AR은 수증기를 대량으로 수송하는 좁고 긴 대기 흐름으로, 적당한 AR은 수자원 공급에 필수적이지만, 강한 AR이 **장시간 지속**되면 대규모 홍수와 산사태를 유발한다.
 
-## Key Results
+핵심은 **지속 시간**이다:
+- AR이 12시간 지나가면: 유익한 강수
+- AR이 48시간 이상 지속되면: 재앙적 홍수 (2017년 Oroville 댐 위기, 2023년 캘리포니아 대홍수)
 
-### Parisian Oracle (verified)
-- Borrow-chain comparator, reversible consecutive counter, OR-latch
-- Bennett's pebble game: **340 qubits** (vs 1,543 naive) for T=192 steps
-- Qiskit Aer verification: 50.62% vs expected 50.00%
+AR로 인한 연간 피해액은 $5-7B (약 7-10조원)이며, 이 중 80%가 보험으로 커버되지 않는다. 기후변화로 AR의 강도와 빈도가 증가하면서 이 gap은 더 벌어지고 있다.
 
-### JD-OU Model (calibrated to ERA5)
-- 44 years of IVT data (1980-2023), SF coast, 6-hourly
-- Jump-Diffusion O-U: kappa=0.767, theta=85.8, sigma=62
-- AR events: lambda=0.108/day (39.5/yr), mu_peak=390.5, tau=0.69 days
+### 기존 보험 상품의 한계
 
-### Complexity
+전통적 기상 파생상품(weather derivatives)은 단순 조건에 기반한다:
+- "강수량이 X mm 초과" (단일 시점 조건)
+- "기온이 Y도 이하인 날이 Z일 이상" (누적 조건)
 
-| Method | Qubits | Cost |
-|--------|--------|------|
+하지만 AR 재해의 핵심 메커니즘은 **연속 지속 시간**이다. IVT(수증기 수송량)가 높은 상태가 **끊기지 않고** 48시간 이상 유지되어야 토양이 포화되고, 유출이 누적되어 홍수가 발생한다. 중간에 잠깐이라도 IVT가 내려가면 피해 규모가 급격히 줄어든다.
+
+이 "연속 지속" 조건은 금융공학에서 **파리지앵 옵션(Parisian option)**이라고 불리는 구조와 정확히 일치한다:
+
+> **파리지앵 조건**: 기초자산이 배리어를 **연속으로** 일정 기간 이상 초과해야 트리거
+
+### 가격 결정의 어려움
+
+파리지앵 조건은 경로 의존적(path-dependent)이어서 해석적 해가 존재하지 않는다. 실무에서는 몬테카를로(MC) 시뮬레이션에 의존하는데:
+
+1. **MC는 느리다**: 정확도 epsilon을 위해 O(1/epsilon^2)개의 경로가 필요
+2. **희귀 사건 문제**: AR 트리거 확률이 1-5% 수준으로, 대부분의 시뮬레이션 경로가 "낭비"
+3. **보험 상품 설계**: 다양한 (배리어, 윈도우) 조합에 대해 반복 계산 필요
+
+### 본 연구의 접근
+
+네 가지 방법을 점진적으로 개선하며 비교한다:
+
+```
+Naive MC  →  IS-MC (Glasserman)  →  QAE  →  IS-QAE
+ (기본)     (분산 감소)          (양자 가속)  (분산 감소 + 양자 가속)
+```
+
+- **Importance Sampling (IS)**: Glasserman의 exponential tilting으로 희귀 사건 방향으로 경로를 편향시켜 분산을 줄임
+- **Quantum Amplitude Estimation (QAE)**: MC의 O(1/epsilon^2)를 O(1/epsilon)으로 개선하는 양자 알고리즘
+- **IS-QAE**: 두 개선이 곱해져서 최상의 점근적 복잡도 달성
+
+핵심 기술적 기여는 **파리지앵 조건(연속 지속 시간)을 양자 회로로 구현한 최초의 oracle 설계**이다.
+
+---
+
+## 주요 결과
+
+### 파리지앵 오라클 (검증 완료)
+- Borrow-chain 비교기, 가역적 연속 카운터, OR-래치
+- Bennett's pebble game 적용: **340 큐빗** (naive 1,543 큐빗 대비 4.5배 감소)
+- Qiskit Aer 시뮬레이션 검증: 50.62% (이론값 50.00%)
+
+### JD-OU 모델 (ERA5 캘리브레이션)
+- 44년 IVT 데이터 (1980-2023), 샌프란시스코 해안, 6시간 간격
+- Jump-Diffusion Ornstein-Uhlenbeck: 정상 레짐 + AR 이벤트 2개 레짐 모델
+- 캘리브레이션 결과: kappa=0.767, theta=85.8, sigma=62, lambda=0.108/day (연 39.5회 AR)
+
+### 복잡도 비교
+
+| 방법 | 큐빗 | 계산 비용 |
+|------|-------|-----------|
 | Naive MC | 0 | O(T / epsilon^2) |
-| IS-MC | 0 | O(T * sigma_IS^2 / epsilon^2) |
+| IS-MC (Glasserman) | 0 | O(T * sigma_IS^2 / epsilon^2) |
 | QAE | O(sqrt(T)*n + T) | O(T^{3/2} / epsilon) |
-| IS-QAE | O(sqrt(T)*n + T) | O(T^{3/2} * sigma_IS / epsilon) |
+| **IS-QAE** | O(sqrt(T)*n + T) | **O(T^{3/2} * sigma_IS / epsilon)** |
 
-## Project Structure
+---
+
+## 프로젝트 구조
 
 ```
 qae-parisian-climate/
 ├── src/
 │   ├── models/
-│   │   ├── ornstein_uhlenbeck.py   # Base O-U process
-│   │   ├── jump_diffusion_ou.py    # JD-OU (two-regime AR model)
-│   │   └── parisian.py             # Parisian condition checker + MC pricing
+│   │   ├── ornstein_uhlenbeck.py   # 기본 O-U 과정
+│   │   ├── jump_diffusion_ou.py    # JD-OU (2레짐 AR 모델)
+│   │   └── parisian.py             # 파리지앵 조건 판별 + MC 가격결정
 │   ├── quantum/
-│   │   └── parisian_oracle.py      # Quantum oracle + pebble game + complexity
+│   │   └── parisian_oracle.py      # 양자 오라클 + pebble game + 복잡도 분석
 │   └── classical/
-│       └── robust_mc.py            # Robust MC over parameter ranges
+│       └── robust_mc.py            # 파라미터 범위에 대한 robust MC
 ├── data/
-│   └── raw/                        # ERA5 IVT NetCDF files (1980-2023)
+│   └── raw/                        # ERA5 IVT NetCDF 파일 (1980-2023)
 ├── docs/
-│   └── paper_outline.md            # Full paper structure
+│   └── paper_outline.md            # 논문 구조
 ├── notebooks/
 ├── tests/
 └── requirements.txt
 ```
 
-## Data
+## 데이터
 
-- **Source**: ERA5 CDS (Copernicus Climate Data Store)
-- **Variables**: viwve, viwvn (eastward/northward vapor transport)
-- **Region**: California coast [40N-34N, 130W-120W]
-- **Period**: 1980-2023, 6-hourly (64,284 observations at SF point)
-- **IVT**: sqrt(viwve^2 + viwvn^2), threshold >= 250 kg/m/s for AR
+- **출처**: ERA5 CDS (Copernicus Climate Data Store)
+- **변수**: viwve, viwvn (동서/남북 수증기 수송량)
+- **지역**: 캘리포니아 해안 [40N-34N, 130W-120W]
+- **기간**: 1980-2023, 6시간 간격 (SF 지점 64,284개 관측)
+- **IVT**: sqrt(viwve^2 + viwvn^2), AR 판별 임계값 >= 250 kg/m/s
 
-## References
+## 참고 문헌
 
 - Chesney et al. (1997): Parisian barrier options
 - Glasserman (2003): Monte Carlo Methods in Financial Engineering
 - Stamatopoulos et al. (2020): Option pricing using quantum computers
 - Bennett (1989): Time/space tradeoffs for reversible computation
 - Merton (1976): Jump-diffusion option pricing
-- Ralph et al. (2019): AR Scale
+- Ralph et al. (2019): Atmospheric River Scale
 
-## Status
+## 진행 상황
 
-| Phase | Status |
-|-------|--------|
-| ERA5 data acquisition | DONE |
-| JD-OU calibration | DONE |
-| Parisian oracle design | DONE |
-| Oracle verification (Qiskit) | DONE |
-| Glasserman IS | TODO |
-| IS-QAE state preparation | TODO |
-| Numerical experiments | TODO |
-| Paper writing | TODO |
+| 단계 | 상태 |
+|------|------|
+| ERA5 데이터 수집 | 완료 |
+| JD-OU 캘리브레이션 | 완료 |
+| 파리지앵 오라클 설계 | 완료 |
+| 오라클 검증 (Qiskit Aer) | 완료 |
+| Glasserman IS 구현 | 예정 |
+| IS-QAE state preparation | 예정 |
+| 수치 실험 | 예정 |
+| 논문 작성 | 예정 |
