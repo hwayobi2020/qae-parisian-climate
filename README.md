@@ -67,14 +67,29 @@ Naive MC  →  IS-MC (Glasserman)  →  QAE  →  IS-QAE
 - Jump-Diffusion Ornstein-Uhlenbeck: 정상 레짐 + AR 이벤트 2개 레짐 모델
 - 캘리브레이션 결과: kappa=0.767, theta=85.8, sigma=62, lambda=0.108/day (연 39.5회 AR)
 
+### Glasserman IS (검증 완료)
+- 3성분 exponential tilting: 확산(Girsanov) + 점프율(Poisson) + 점프지속(Exponential)
+- Jump-only tilting이 최적 (확산 tilt는 가중치 퇴화 유발)
+- 분산 감소: 1.2x (일반 이벤트) ~ 6.5x (희귀 이벤트), 희귀도에 비례
+
+### QAE 수렴 (검증 완료)
+- 18큐빗 파리지앵 오라클에서 IQAE (Iterative QAE) 실행
+- MC vs IQAE 같은 호출 횟수에서 IQAE가 2-25배 정밀
+- O(1/sqrt(N)) vs O(1/N) 수렴 속도 확인
+
+### 파라미터 불확실성 (핵심 동기)
+- Bootstrap으로 ERA5에서 K개 파라미터셋 생성
+- 고전: K × O(1/ε²) → 양자: K × O(1/ε)
+- K=30,000, ε=0.001 기준: MC 25분 vs QAE 24초 (64x speedup)
+
 ### 복잡도 비교
 
-| 방법 | 큐빗 | 계산 비용 |
+| 방법 | 큐빗 | 계산 비용 (K 파라미터셋) |
 |------|-------|-----------|
-| Naive MC | 0 | O(T / epsilon^2) |
-| IS-MC (Glasserman) | 0 | O(T * sigma_IS^2 / epsilon^2) |
-| QAE | O(sqrt(T)*n + T) | O(T^{3/2} / epsilon) |
-| **IS-QAE** | O(sqrt(T)*n + T) | **O(T^{3/2} * sigma_IS / epsilon)** |
+| Naive MC | 0 | K × O(T / epsilon^2) |
+| IS-MC (Glasserman) | 0 | K × O(T * sigma_IS^2 / epsilon^2) |
+| QAE | O(sqrt(T)*n + T) | K × O(T^{3/2} / epsilon) |
+| **IS-QAE** | O(sqrt(T)*n + T) | **K × O(T^{3/2} * sigma_IS / epsilon)** |
 
 ---
 
@@ -88,9 +103,15 @@ qae-parisian-climate/
 │   │   ├── jump_diffusion_ou.py    # JD-OU (2레짐 AR 모델)
 │   │   └── parisian.py             # 파리지앵 조건 판별 + MC 가격결정
 │   ├── quantum/
-│   │   └── parisian_oracle.py      # 양자 오라클 + pebble game + 복잡도 분석
-│   └── classical/
-│       └── robust_mc.py            # 파라미터 범위에 대한 robust MC
+│   │   ├── parisian_oracle.py      # 양자 오라클 + pebble game + 복잡도 분석
+│   │   └── qae_convergence_demo.py # IQAE 수렴 데모 (MC vs QAE 호출횟수 비교)
+│   ├── classical/
+│   │   ├── glasserman_is.py        # Glasserman IS (3성분 exponential tilting)
+│   │   ├── markov_chain.py         # 마르코프 체인 exact solver
+│   │   ├── parameter_sweep.py      # 파라미터 불확실성 분석 (bootstrap + 배치 실행)
+│   │   └── robust_mc.py            # 파라미터 범위에 대한 robust MC
+│   └── generate_paper_figures.py   # 논문 figure 생성기
+├── figures/                        # 생성된 논문 figure
 ├── data/
 │   └── raw/                        # ERA5 IVT NetCDF 파일 (1980-2023)
 ├── docs/
@@ -125,7 +146,9 @@ qae-parisian-climate/
 | JD-OU 캘리브레이션 | 완료 |
 | 파리지앵 오라클 설계 | 완료 |
 | 오라클 검증 (Qiskit Aer) | 완료 |
-| Glasserman IS 구현 | 예정 |
-| IS-QAE state preparation | 예정 |
-| 수치 실험 | 예정 |
+| Glasserman IS 구현 | 완료 |
+| 마르코프 체인 검증 | 완료 |
+| QAE 수렴 데모 (IQAE) | 완료 |
+| 파라미터 불확실성 분석 | 완료 |
+| 논문 figure 생성 | 완료 |
 | 논문 작성 | 예정 |
