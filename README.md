@@ -93,6 +93,28 @@ Naive MC  →  IS-MC (Glasserman)  →  QAE  →  IS-QAE
 
 ---
 
+## 수치 실험 결과
+
+### MC vs QAE 수렴 비교
+
+18큐빗 파리지앵 오라클에서 MC와 IQAE의 수렴 속도 비교. 같은 오라클 호출 횟수에서 IQAE가 일관되게 높은 정밀도를 달성한다.
+
+![MC vs QAE Convergence](figures/fig1_convergence.png)
+
+### 스케일링 프로젝션
+
+파라미터 불확실성(K개 셋) × 정밀도(ε) 조합에서의 총 오라클 호출 수. K와 1/ε이 커질수록 양자 이점이 증가한다.
+
+![Scaling Projections](figures/fig2_scaling.png)
+
+### 파라미터 불확실성 하의 가격 분포
+
+ERA5 block bootstrap으로 생성한 K=100개 파라미터셋에 대한 트리거 확률 분포. 일반 이벤트(B=250)와 희귀 이벤트(B=500)에서 MC와 IS-MC의 가격 분포를 비교한다.
+
+![Parameter Uncertainty](figures/fig3_parameter_uncertainty.png)
+
+---
+
 ## 프로젝트 구조
 
 ```
