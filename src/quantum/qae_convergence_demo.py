@@ -386,25 +386,29 @@ def four_method_comparison(
         'oracle_calls': final['total_oracle_calls'], 'wall_time': t1 - t0,
     }
 
-    # 4. IS-QAE: IS boosts p → fewer Grover iterations needed
-    # With IS tilt q_high=0.7, effective p_tilt ≈ 0.7 (higher than 0.25)
-    # QAE on tilted distribution needs fewer iterations,
-    # then correct with E[LR] = 1
-    # Simulated: reduce max_depth because p_tilt is larger
+    # 4. IS-QAE: IS-tilted state prep + IQAE + classical correction
+    # Grover-Rudolph circuit loads tilted distribution q(x) with
+    # more amplitude on above-barrier states (p_IS >> p).
+    # Then IQAE estimates p_IS, and classical correction gives p = p_IS * c.
+    from quantum.is_qae import is_qae_full_pipeline
     t0 = time.time()
-    # IS-QAE uses the same oracle but with IS-enhanced state prep
-    # For demo: show that fewer rounds suffice when p is boosted
-    is_qae_depth = max(1, qae_max_depth // 4)
-    is_iqae_res = iqae_estimate(
-        n_ivt, n_counter, barrier, window, n_steps,
-        max_depth=is_qae_depth, n_shots_per_round=n_shots_qae,
+    is_qae_result = is_qae_full_pipeline(
+        n_ivt=n_ivt, n_counter=n_counter,
+        barrier=barrier, window=window, n_steps=n_steps,
+        q_high=0.7,
+        qae_max_depth=qae_max_depth,
+        n_shots_qae=n_shots_qae,
+        n_correction_samples=n_is,
+        seed=seed + 2000,
     )
     t1 = time.time()
-    is_final = is_iqae_res['trace'][-1]
     results['is_qae'] = {
-        'price': is_final['p_est'], 'error': is_final['error'],
-        'oracle_calls': is_final['total_oracle_calls'], 'wall_time': t1 - t0,
-        'note': 'IS boosts trigger prob -> fewer Grover iterations',
+        'price': is_qae_result.p_final,
+        'error': abs(is_qae_result.p_final - p_exact),
+        'oracle_calls': is_qae_result.total_oracle_calls,
+        'wall_time': t1 - t0,
+        'p_is': is_qae_result.p_is,
+        'correction': is_qae_result.correction_factor,
     }
 
     # Print table
