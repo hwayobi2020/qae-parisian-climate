@@ -1,5 +1,9 @@
-# ===== 다중척도 wavelet 피처 + KAN : AR onset -> 3일+ 지속 =====
-# IVT(6h)->wavelet, Z500(일별 블로킹)->wavelet, U250(일별 제트)->wavelet, SST 그대로 -> KAN
+# ===== 다중척도 wavelet + KAN : AR onset -> 3일+ 지속 =====
+# 변수별 최적 구간:
+#   IVT(6h)   32일(128스텝) -> wavelet L6 = 7
+#   Z500(일별) 64일         -> wavelet L5 = 6   (블로킹)
+#   U250(일별) 64일         -> wavelet L5 = 6   (제트)
+#   SST(월별)  과거 12개월 추세 -> [현재값, 12mo 기울기] = 2
 # 시간순 train/val/test(60/20/20), train으로만 표준화, val 조기종료, test AUC.
 import os, copy
 import numpy as np, torch, torch.nn as nn, pywt
@@ -12,25 +16,26 @@ def find(name):
         if os.path.exists(p): return p
     raise FileNotFoundError(name)
 ivt=np.load(find("ivt_sf_1980_2023.npy")).astype("float64")          # 6h
-sst=np.load(find("sst_anom.npy")).astype("float64")                  # 6h (월별 broadcast)
+sst=np.load(find("sst_anom.npy")).astype("float64")                  # 6h(월별 broadcast)
 ci=np.load(find("circ_indices.npz"))                                 # 일별
 blocking=ci["blocking"].astype("float64"); jet=ci["jet"].astype("float64")
 
 dmax=ivt.reshape(-1,4).max(1); ND=len(dmax); ar=dmax>250
-def wlast(arr, lvl):
-    return [c[-1] for c in pywt.swt(arr,'db2',level=lvl,trim_approx=True,norm=True)]
+MONTH6=120  # 30일 = 120 six-hourly steps
+def wlast(arr,lvl): return [c[-1] for c in pywt.swt(arr,'db2',level=lvl,trim_approx=True,norm=True)]
 X=[]; y=[]; i=0
-while i<ND:                       # 이벤트 시간순
+while i<ND:
     if ar[i]:
         j=i
         while j<ND and ar[j]: j+=1
         o=i; dur=j-i; end6=(o+1)*4
-        if end6-64>=0 and o-15>=0:
-            iv=wlast(ivt[end6-64:end6], 5)        # 6
-            zb=wlast(blocking[o-15:o+1], 3)       # 4 (16일)
-            uj=wlast(jet[o-15:o+1], 3)            # 4
-            ss=[sst[end6-1]]                      # 1 (그대로)
-            X.append(iv+zb+uj+ss); y.append(int(dur>=3))
+        if end6-128>=0 and o-63>=0 and end6-1-11*MONTH6>=0:
+            ivw=wlast(ivt[end6-128:end6], 6)          # 7
+            zbw=wlast(blocking[o-63:o+1], 5)          # 6
+            ujw=wlast(jet[o-63:o+1], 5)               # 6
+            ssm=[sst[end6-1-m*MONTH6] for m in range(12)][::-1]  # 12 monthly, oldest->newest
+            ss=[ssm[-1], np.polyfit(np.arange(12),ssm,1)[0]]     # [level, 12mo trend]
+            X.append(ivw+zbw+ujw+ss); y.append(int(dur>=3))
         i=j
     else: i+=1
 X=np.array(X); y=np.array(y); n=len(y)
@@ -38,7 +43,7 @@ i1=int(n*0.6); i2=int(n*0.8); trs=slice(0,i1); vas=slice(i1,i2); tes=slice(i2,n)
 mu=X[trs].mean(0); sd=X[trs].std(0)+1e-8; X=(X-mu)/sd
 dev="cuda" if torch.cuda.is_available() else "cpu"
 Xt=torch.tensor(X,dtype=torch.float32).to(dev); yt=torch.tensor(y,dtype=torch.float32).to(dev)
-print(f"n={n}, feat={X.shape[1]} (IVT6+Z500_4+U250_4+SST1), train/val/test={i1}/{i2-i1}/{n-i2}, "
+print(f"n={n}, feat={X.shape[1]} (IVT7+Z500_6+U250_6+SST2), tr/va/te={i1}/{i2-i1}/{n-i2}, "
       f"pos% {y[trs].mean()*100:.0f}/{y[vas].mean()*100:.0f}/{y[tes].mean()*100:.0f}, dev={dev}")
 
 torch.manual_seed(0)
