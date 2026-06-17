@@ -1,1 +1,0 @@
-# Classical Monte Carlo baselines

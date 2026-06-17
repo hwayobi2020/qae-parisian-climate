@@ -1,176 +1,76 @@
-# QAE-Parisian-Climate
+# Atmospheric River Duration Predictability
 
-**중요도 샘플링 기반 양자 진폭 추정을 활용한 파리지앵 기후 파생상품 가격 결정**
+**대기강(Atmospheric River)이 발생한 시점의 대규모 환경만으로, 그 이벤트가 며칠 지속할지 예측 가능한가?**
 
-Importance-Sampled Quantum Amplitude Estimation for Parisian Climate Derivatives
-
----
-
-## 왜 이 연구가 필요한가
-
-### 대기강(Atmospheric River)과 기후 재해
-
-캘리포니아는 연간 강수량의 30-50%를 대기강(AR)에서 얻는다. AR은 수증기를 대량으로 수송하는 좁고 긴 대기 흐름으로, 적당한 AR은 수자원 공급에 필수적이지만, 강한 AR이 **장시간 지속**되면 대규모 홍수와 산사태를 유발한다.
-
-핵심은 **지속 시간**이다:
-- AR이 12시간 지나가면: 유익한 강수
-- AR이 48시간 이상 지속되면: 재앙적 홍수 (2017년 Oroville 댐 위기, 2023년 캘리포니아 대홍수)
-
-AR로 인한 연간 피해액은 $5-7B (약 7-10조원)이며, 이 중 80%가 보험으로 커버되지 않는다. 기후변화로 AR의 강도와 빈도가 증가하면서 이 gap은 더 벌어지고 있다.
-
-### 기존 보험 상품의 한계
-
-전통적 기상 파생상품(weather derivatives)은 단순 조건에 기반한다:
-- "강수량이 X mm 초과" (단일 시점 조건)
-- "기온이 Y도 이하인 날이 Z일 이상" (누적 조건)
-
-하지만 AR 재해의 핵심 메커니즘은 **연속 지속 시간**이다. IVT(수증기 수송량)가 높은 상태가 **끊기지 않고** 48시간 이상 유지되어야 토양이 포화되고, 유출이 누적되어 홍수가 발생한다. 중간에 잠깐이라도 IVT가 내려가면 피해 규모가 급격히 줄어든다.
-
-이 "연속 지속" 조건은 금융공학에서 **파리지앵 옵션(Parisian option)**이라고 불리는 구조와 정확히 일치한다:
-
-> **파리지앵 조건**: 기초자산이 배리어를 **연속으로** 일정 기간 이상 초과해야 트리거
-
-### 가격 결정의 어려움
-
-파리지앵 조건은 경로 의존적(path-dependent)이어서 해석적 해가 존재하지 않는다. 실무에서는 몬테카를로(MC) 시뮬레이션에 의존하는데:
-
-1. **MC는 느리다**: 정확도 epsilon을 위해 O(1/epsilon^2)개의 경로가 필요
-2. **희귀 사건 문제**: AR 트리거 확률이 1-5% 수준으로, 대부분의 시뮬레이션 경로가 "낭비"
-3. **보험 상품 설계**: 다양한 (배리어, 윈도우) 조합에 대해 반복 계산 필요
-
-### 본 연구의 접근
-
-네 가지 방법을 점진적으로 개선하며 비교한다:
-
-```
-Naive MC  →  IS-MC (Glasserman)  →  QAE  →  IS-QAE
- (기본)     (분산 감소)          (양자 가속)  (분산 감소 + 양자 가속)
-```
-
-- **Importance Sampling (IS)**: Glasserman의 exponential tilting으로 희귀 사건 방향으로 경로를 편향시켜 분산을 줄임
-- **Quantum Amplitude Estimation (QAE)**: MC의 O(1/epsilon^2)를 O(1/epsilon)으로 개선하는 양자 알고리즘
-- **IS-QAE**: 두 개선이 곱해져서 최상의 점근적 복잡도 달성
-
-핵심 기술적 기여는 **파리지앵 조건(연속 지속 시간)을 양자 회로로 구현한 최초의 oracle 설계**이다.
+> 이 저장소는 원래 양자 진폭추정 기반 기후 파생상품 가격결정 프로젝트였으나, 2026-06-17 위 주제로 전면 전환했다. 이전 양자 단계 자료는 `archive/`에 보존되어 있다.
 
 ---
 
-## 주요 결과
+## 왜 지속기간인가
 
-### 파리지앵 오라클 (검증 완료)
-- Borrow-chain 비교기, 가역적 연속 카운터, OR-래치
-- Bennett's pebble game 적용: **340 큐빗** (naive 1,543 큐빗 대비 4.5배 감소)
-- Qiskit Aer 시뮬레이션 검증: 50.62% (이론값 50.00%)
+대기강(AR)은 수증기를 대량 수송하는 좁고 긴 대기 흐름으로, 중위도 서해안의 호우·홍수 재해의 주범이다. 핵심은 **지속 시간**이다 — 같은 강도라도 짧게 지나가면 유익한 강수지만, 길게(≥수일) 머무르면 토양이 포화되어 대규모 홍수가 된다.
 
-### JD-OU 모델 (ERA5 캘리브레이션)
-- 44년 IVT 데이터 (1980-2023), 샌프란시스코 해안, 6시간 간격
-- Jump-Diffusion Ornstein-Uhlenbeck: 정상 레짐 + AR 이벤트 2개 레짐 모델
-- 캘리브레이션 결과: kappa=0.767, theta=85.8, sigma=62, lambda=0.108/day (연 39.5회 AR)
+기존 AR 예보 연구는 **발생·위치·강도**를 며칠 앞서 맞추는 데 집중해왔고(예: DeFlorio et al. 2018; Nayak & Villarini 2014; Ramos et al. NHESS 2020), 개별 AR의 **지속성(duration)이 발생 시점 환경에 의해 얼마나 예측 가능한지는 정량화된 바가 거의 없다.** 본 연구는 이 빈 자리를 다룬다.
 
-### Glasserman IS (검증 완료)
-- 3성분 exponential tilting: 확산(Girsanov) + 점프율(Poisson) + 점프지속(Exponential)
-- Jump-only tilting이 최적 (확산 tilt는 가중치 퇴화 유발)
-- 분산 감소: 1.2x (일반 이벤트) ~ 6.5x (희귀 이벤트), 희귀도에 비례
+## 연구 질문과 정체성
 
-### QAE 수렴 (검증 완료)
-- 18큐빗 파리지앵 오라클에서 IQAE (Iterative QAE) 실행
-- MC vs IQAE 같은 호출 횟수에서 IQAE가 2-25배 정밀
-- O(1/sqrt(N)) vs O(1/N) 수렴 속도 확인
+- **질문**: AR이 막 시작된 시점(onset)의 대규모 순환(상층 제트, 블로킹)과 IVT 다중척도 구조만으로, 그 이벤트가 ≥N일 지속할지 예측 가능한가.
+- **정체성**: 예보 도구가 아니라 **예측가능성·메커니즘 과학**이다. 수치예보(NWP)는 시간별 IVT 궤적을 적분해 지속시간을 부산물로 얻지만, 본 연구는 "지속성이 onset 시점 환경에 의해 이미 얼마나 조건지어져 있는가"와 그 물리적 원천을 묻는다.
 
-### 파라미터 불확실성 (핵심 동기)
-- Bootstrap으로 ERA5에서 K개 파라미터셋 생성
-- 고전: K × O(1/ε²) → 양자: K × O(1/ε)
-- K=30,000, ε=0.001 기준: MC 25분 vs QAE 24초 (64x speedup)
+## 방법
 
-### 복잡도 비교
+- **대상**: AR 이벤트 = 일별 최대 IVT가 그 지역의 **85번째 백분위수**를 연속으로 넘는 구간. onset = 그 시작일.
+- **레이블**: 지속기간 ≥ N일 (기준 N=4).
+- **특징(20개)**: onset 직전 IVT 16일 wavelet(다중척도 분해) + onset IVT + 상층 제트(U250) onset/64일 wavelet + 블로킹(Z500) 64일 wavelet.
+- **모델**: Logistic / Random Forest / TabPFN. 시간순 60/20 홀드아웃, train-only 표준화, test AUC + 부트스트랩 신뢰구간.
+- **검증 원칙**: 3지역(캘리포니아·영국·칠레)을 **완전 독립 모델**로 분석하고(풀링 금지), 같은 방법론의 **지역 간 재현성**으로 일반화를 입증한다.
 
-| 방법 | 큐빗 | 계산 비용 (K 파라미터셋) |
-|------|-------|-----------|
-| Naive MC | 0 | K × O(T / epsilon^2) |
-| IS-MC (Glasserman) | 0 | K × O(T * sigma_IS^2 / epsilon^2) |
-| QAE | O(sqrt(T)*n + T) | K × O(T^{3/2} / epsilon) |
-| **IS-QAE** | O(sqrt(T)*n + T) | **K × O(T^{3/2} * sigma_IS / epsilon)** |
+## 현재까지 결과 (캘리포니아 SF)
 
----
+| 항목 | 값 |
+|---|---|
+| 본 기준 | AR onset → ≥4일 지속 이진분류 |
+| 성능 | test AUC ~0.77 (Logistic ≈ RF ≈ TabPFN, 통계적 동급) |
+| 신호원 | IVT 16일 wavelet + U250 상층 제트 |
+| 무효 변수 | Z500 블로킹, 해수면온도(SST) |
 
-## 수치 실험 결과
-
-### MC vs QAE 수렴 비교
-
-18큐빗 파리지앵 오라클에서 MC와 IQAE의 수렴 속도 비교. 같은 오라클 호출 횟수에서 IQAE가 일관되게 높은 정밀도를 달성한다.
-
-![MC vs QAE Convergence](figures/fig1_convergence.png)
-
-### 스케일링 프로젝션
-
-파라미터 불확실성(K개 셋) × 정밀도(ε) 조합에서의 총 오라클 호출 수. K와 1/ε이 커질수록 양자 이점이 증가한다.
-
-![Scaling Projections](figures/fig2_scaling.png)
-
-### 파라미터 불확실성 하의 가격 분포
-
-ERA5 block bootstrap으로 생성한 K=100개 파라미터셋에 대한 트리거 확률 분포. 일반 이벤트(B=250)와 희귀 이벤트(B=500)에서 MC와 IS-MC의 가격 분포를 비교한다.
-
-![Parameter Uncertainty](figures/fig3_parameter_uncertainty.png)
-
----
-
-## 프로젝트 구조
-
-```
-qae-parisian-climate/
-├── src/
-│   ├── models/
-│   │   ├── ornstein_uhlenbeck.py   # 기본 O-U 과정
-│   │   ├── jump_diffusion_ou.py    # JD-OU (2레짐 AR 모델)
-│   │   └── parisian.py             # 파리지앵 조건 판별 + MC 가격결정
-│   ├── quantum/
-│   │   ├── parisian_oracle.py      # 양자 오라클 + pebble game + 복잡도 분석
-│   │   └── qae_convergence_demo.py # IQAE 수렴 데모 (MC vs QAE 호출횟수 비교)
-│   ├── classical/
-│   │   ├── glasserman_is.py        # Glasserman IS (3성분 exponential tilting)
-│   │   ├── markov_chain.py         # 마르코프 체인 exact solver
-│   │   ├── parameter_sweep.py      # 파라미터 불확실성 분석 (bootstrap + 배치 실행)
-│   │   └── robust_mc.py            # 파라미터 범위에 대한 robust MC
-│   └── generate_paper_figures.py   # 논문 figure 생성기
-├── figures/                        # 생성된 논문 figure
-├── data/
-│   └── raw/                        # ERA5 IVT NetCDF 파일 (1980-2023)
-├── docs/
-│   └── paper_outline.md            # 논문 구조
-├── notebooks/
-├── tests/
-└── requirements.txt
-```
+임계값을 올려 "더 오래 가는 극단 이벤트"로 좁힐수록 AUC가 오르며(≥2일 0.71 → ≥4일 0.77), 이는 *치명적으로 오래 갈 AR일수록 발생 직후에 더 잘 식별된다*는 것을 시사한다.
 
 ## 데이터
 
-- **출처**: ERA5 CDS (Copernicus Climate Data Store)
-- **변수**: viwve, viwvn (동서/남북 수증기 수송량)
-- **지역**: 캘리포니아 해안 [40N-34N, 130W-120W]
-- **기간**: 1980-2023, 6시간 간격 (SF 지점 64,284개 관측)
-- **IVT**: sqrt(viwve^2 + viwvn^2), AR 판별 임계값 >= 250 kg/m/s
+- **IVT**: ERA5 (`reanalysis-era5-single-levels`, viwve/viwvn → sqrt 합성), 1980-2023, 6시간 간격, 단일 지점.
+- **순환지수**: NCEP/NCAR Reanalysis (Z500 500hPa 고도, U250 250hPa 동서바람) OPeNDAP, 지역별 영역.
+- **지점**: 캘리포니아 SF(37.7°N), 영국 콘월(50.0°N), 칠레 발파라이소(33.0°S).
+
+## 저장소 구조 (현행)
+
+```
+qae-parisian-climate/
+├── scripts/
+│   ├── download_era5_ivt_uk.py      # 영국 IVT 다운로드
+│   ├── download_era5_ivt_chile.py   # 칠레 IVT 다운로드
+│   └── build_circ_uk.py             # 영국 북대서양 순환지수
+├── threshold_sweep_region.py        # 지역 일반화 임계값 스윕 + 모델 비교 (Colab)
+├── data/raw/                        # ERA5 IVT, 순환지수 (gitignore)
+├── archive/                         # 이전 양자 단계 소스·문서 보존
+└── chat/                            # 세션 기록 (gitignore)
+```
 
 ## 참고 문헌
 
-- Chesney et al. (1997): Parisian barrier options
-- Glasserman (2003): Monte Carlo Methods in Financial Engineering
-- Stamatopoulos et al. (2020): Option pricing using quantum computers
-- Bennett (1989): Time/space tradeoffs for reversible computation
-- Merton (1976): Jump-diffusion option pricing
-- Ralph et al. (2019): Atmospheric River Scale
+- Ralph et al. (2019): Atmospheric River Scale (BAMS)
+- DeFlorio et al. (2018): Global Assessment of Atmospheric River Prediction Skill (JHM)
+- Nayak & Villarini (2014): Skill of NWP to forecast ARs over the central US (GRL)
+- Ramos et al. (2020): Predictive skill for atmospheric rivers in the western Iberian Peninsula (NHESS)
+- Guan & Waliser (2015): AR detection with percentile-based IVT thresholds (JGR)
 
 ## 진행 상황
 
 | 단계 | 상태 |
 |------|------|
-| ERA5 데이터 수집 | 완료 |
-| JD-OU 캘리브레이션 | 완료 |
-| 파리지앵 오라클 설계 | 완료 |
-| 오라클 검증 (Qiskit Aer) | 완료 |
-| Glasserman IS 구현 | 완료 |
-| 마르코프 체인 검증 | 완료 |
-| QAE 수렴 데모 (IQAE) | 완료 |
-| 파라미터 불확실성 분석 | 완료 |
-| 논문 figure 생성 | 완료 |
-| 논문 작성 | 예정 |
+| 캘리포니아 onset→지속 예측가능성 | 완료 (AUC ~0.77) |
+| 신호원 규명 (ablation) | 완료 (IVT+제트 유효, Z500/SST 무효) |
+| 영국·칠레 IVT 다운로드 | 진행 중 |
+| 영국·칠레 독립 재현 검증 | 예정 |
+| persistence baseline 비교 | 예정 |
+| 메커니즘(합성장) 분석 | 예정 |
