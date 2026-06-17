@@ -14,7 +14,7 @@ def find(name):
         if os.path.exists(p): return p
     raise FileNotFoundError(name)
 ivt=np.load(find("ivt_sf_1980_2023.npy")).astype("float64")   # 6h
-jet=np.load(find("circ_indices.npz"))["jet"].astype("float64")  # 일별 U250 제트
+ci=np.load(find("circ_indices.npz")); jet=ci["jet"].astype("float64"); blk=ci["blocking"].astype("float64")  # 일별 U250제트, Z500블로킹
 
 dmax=ivt.reshape(-1,4).max(1); ND=len(dmax); ar=dmax>250
 def wlast(arr,lvl): return [c[-1] for c in pywt.swt(arr,'db2',level=lvl,trim_approx=True,norm=True)]
@@ -29,7 +29,8 @@ while i<ND:
             ivo=[dmax[o]]                       # 1  IVT onset
             ujo=[jet[o]]                        # 1  U250 jet onset
             ujw=wlast(jet[o-63:o+1], 5)         # 6  U250 jet wavelet 64일
-            X.append(ivw+ivo+ujo+ujw); y.append(int(dur>=3))
+            zbw=wlast(blk[o-63:o+1], 5)         # 6  Z500 블로킹 wavelet 64일
+            X.append(ivw+ivo+ujo+ujw+zbw); y.append(int(dur>=3))
         i=j
     else: i+=1
 X=np.array(X); y=np.array(y); n=len(y)
@@ -37,7 +38,7 @@ i1=int(n*0.6); i2=int(n*0.8); trs=slice(0,i1); vas=slice(i1,i2); tes=slice(i2,n)
 mu=X[trs].mean(0); sd=X[trs].std(0)+1e-8; X=(X-mu)/sd
 dev="cuda" if torch.cuda.is_available() else "cpu"
 Xt=torch.tensor(X,dtype=torch.float32).to(dev); yt=torch.tensor(y,dtype=torch.float32).to(dev)
-print(f"n={n}, feat={X.shape[1]} (IVTwav7+IVTonset1+U250onset1+U250wav6), tr/va/te={i1}/{i2-i1}/{n-i2}, "
+print(f"n={n}, feat={X.shape[1]} (IVTwav7+IVTonset1+U250onset1+U250wav6+Z500wav6), tr/va/te={i1}/{i2-i1}/{n-i2}, "
       f"pos% {y[trs].mean()*100:.0f}/{y[vas].mean()*100:.0f}/{y[tes].mean()*100:.0f}, dev={dev}")
 
 torch.manual_seed(0)
