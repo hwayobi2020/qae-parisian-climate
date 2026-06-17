@@ -24,8 +24,8 @@ while i<ND:
         j=i
         while j<ND and ar[j]: j+=1
         o=i; dur=j-i; end6=(o+1)*4
-        if end6-128>=0 and o-63>=0:
-            ivw=wlast(ivt[end6-128:end6], 6)   # 7  IVT wavelet 32일
+        if end6-64>=0 and o-63>=0:
+            ivw=wlast(ivt[end6-64:end6], 5)    # 6  IVT wavelet 16일 (ablation 최적)
             ivo=[dmax[o]]                       # 1  IVT onset
             ujo=[jet[o]]                        # 1  U250 jet onset
             ujw=wlast(jet[o-63:o+1], 5)         # 6  U250 jet wavelet 64일
@@ -38,7 +38,7 @@ i1=int(n*0.6); i2=int(n*0.8); trs=slice(0,i1); vas=slice(i1,i2); tes=slice(i2,n)
 mu=X[trs].mean(0); sd=X[trs].std(0)+1e-8; X=(X-mu)/sd
 dev="cuda" if torch.cuda.is_available() else "cpu"
 Xt=torch.tensor(X,dtype=torch.float32).to(dev); yt=torch.tensor(y,dtype=torch.float32).to(dev)
-print(f"n={n}, feat={X.shape[1]} (IVTwav7+IVTonset1+U250onset1+U250wav6+Z500wav6), tr/va/te={i1}/{i2-i1}/{n-i2}, "
+print(f"n={n}, feat={X.shape[1]} (IVTwav6_16d+IVTonset1+U250onset1+U250wav6+Z500wav6), tr/va/te={i1}/{i2-i1}/{n-i2}, "
       f"pos% {y[trs].mean()*100:.0f}/{y[vas].mean()*100:.0f}/{y[tes].mean()*100:.0f}, dev={dev}")
 
 torch.manual_seed(0)
