@@ -1,9 +1,7 @@
 # ===== Mamba로 AR onset -> 3일+ 지속 판별 (Colab GPU에서 python 직접 실행 가능) =====
 # 입력 = raw 6h IVT 시퀀스 + wavelet 계수 시퀀스(척도별) 를 다채널로 함께 투입
-import os, sys, subprocess
-subprocess.run([sys.executable,"-m","pip","install","-q",
-                "mamba-ssm","causal-conv1d","pywavelets"], check=False)
-
+# 의존성(mamba_ssm, causal_conv1d, pywavelets)은 Colab 셀에서 wheel로 설치
+import os
 import numpy as np, torch, torch.nn as nn, pywt
 from mamba_ssm import Mamba
 from sklearn.model_selection import StratifiedKFold
