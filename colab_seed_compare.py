@@ -11,6 +11,7 @@ def find(name):
         if os.path.exists(p): return p
     raise FileNotFoundError(name)
 ivt=np.load(find("ivt_sf_1980_2023.npy")).astype("float64")
+sst=np.load(find("sst_anom.npy")).astype("float64")
 ci=np.load(find("circ_indices.npz")); jet=ci["jet"].astype("float64"); blk=ci["blocking"].astype("float64")
 dmax=ivt.reshape(-1,4).max(1); ND=len(dmax); ar=dmax>250
 def wl(a,lvl): return [c[-1] for c in pywt.swt(a,'db2',level=lvl,trim_approx=True,norm=True)]
@@ -21,7 +22,7 @@ while i<ND:
         while j<ND and ar[j]: j+=1
         o=i; dur=j-i; end6=(o+1)*4
         if end6-64>=0 and o-63>=0:
-            X.append(wl(ivt[end6-64:end6],5)+[dmax[o],jet[o]]+wl(jet[o-63:o+1],5)+wl(blk[o-63:o+1],5)); y.append(int(dur>=3))
+            X.append(wl(ivt[end6-64:end6],5)+[dmax[o],jet[o]]+wl(jet[o-63:o+1],5)+wl(blk[o-63:o+1],5)+[sst[end6-1]]); y.append(int(dur>=3))
         i=j
     else: i+=1
 X=np.array(X); y=np.array(y); n=len(y); i1=int(n*0.6); i2=int(n*0.8)
