@@ -41,12 +41,14 @@ for s, e in runs:
 Fa, Fb, Fc, Fd = map(np.array, (Fa, Fb, Fc, Fd)); steps = np.array(steps)
 n = len(steps); i1 = int(n * 0.6); i2 = int(n * 0.8)
 from tabpfn import TabPFNClassifier
+TPMODEL = os.environ.get("TABPFN_MODEL", "auto")   # v2: tabpfn-v2-classifier-v2_default.ckpt
 def auc_lr(X, y):
     sc = StandardScaler().fit(X[:i1])
     m = LogisticRegression(max_iter=3000, C=0.5, class_weight="balanced").fit(sc.transform(X[:i1]), y[:i1])
     return roc_auc_score(y[i2:], m.predict_proba(sc.transform(X[i2:]))[:, 1])
 def auc_tp(X, y):
-    m = TabPFNClassifier(random_state=0, ignore_pretraining_limits=True).fit(X[:i1], y[:i1])
+    kw = {} if TPMODEL == "auto" else {"model_path": TPMODEL}
+    m = TabPFNClassifier(random_state=0, ignore_pretraining_limits=True, **kw).fit(X[:i1], y[:i1])
     return roc_auc_score(y[i2:], m.predict_proba(X[i2:])[:, 1])
 print(f"\n[{REGION}] 6h run n={n}, AR임계(85th)={THR:.0f}  (Δwav=파형기여, Δcirc=순환기여, Δfull=전체기여)")
 for name, auc in [("Logistic", auc_lr), ("TabPFN", auc_tp)]:
