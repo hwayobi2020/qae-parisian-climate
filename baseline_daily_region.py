@@ -1,7 +1,7 @@
 """일별 정의 '강도 baseline 대비 방법론 추가기여' 검증, Logistic + TabPFN.
 (a) onset IVT 강도 단독  vs  (c) 전체 20피처.  (c)-(a)가 크면 방법론이 강도 이상을 함.
-로컬: torch 깨져 TabPFN 자동 스킵(LR만). Colab: TabPFN 포함.
-사용: python baseline_daily_region.py [ca|uk|chile]"""
+사용: python baseline_daily_region.py [ca|uk|chile]   (TABPFN_API_KEY 환경변수 필요)"""
+import torch  # 반드시 먼저 import (로컬 c10.dll 로드 순서)
 import os, sys, numpy as np, pywt, warnings; warnings.filterwarnings("ignore")
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
@@ -34,23 +34,19 @@ while i < ND:
     else: i += 1
 Fa = np.array(Fa); Fc = np.array(Fc); durs = np.array(durs)
 n = len(durs); i1 = int(n * 0.6); i2 = int(n * 0.8)
-try:
-    from tabpfn import TabPFNClassifier; HAVE_TP = True
-except Exception as e:
-    HAVE_TP = False; print(f"[TabPFN 미설치: LR만] {str(e)[:50]}")
+from tabpfn import TabPFNClassifier
 def auc_lr(X, y):
     sc = StandardScaler().fit(X[:i1])
     m = LogisticRegression(max_iter=3000, C=0.5, class_weight="balanced").fit(sc.transform(X[:i1]), y[:i1])
     return roc_auc_score(y[i2:], m.predict_proba(sc.transform(X[i2:]))[:, 1])
 def auc_tp(X, y):
-    if not HAVE_TP: return np.nan
     m = TabPFNClassifier(random_state=0).fit(X[:i1], y[:i1])
     return roc_auc_score(y[i2:], m.predict_proba(X[i2:])[:, 1])
 print(f"\n[{REGION}] 일별 n={n}, AR임계(85th)={THR:.0f}")
-print(f"{'임계':>5} {'양성%':>5} | {'(a)LR':>6} {'(c)LR':>6} {'ΔLR':>6} | {'(a)Tab':>7} {'(c)Tab':>7} {'ΔTab':>6} | {'test양성':>6}")
+print(f"{'임계':>5} {'양성%':>5} | {'(a)LR':>6} {'(c)LR':>6} {'ΔLR':>6} | {'(a)Tab':>7} {'(c)Tab':>7} {'ΔTab':>7} | {'test양성':>6}")
 for thr in [2, 3, 4, 5]:
     y = (durs >= thr).astype(int)
     if len(np.unique(y[i2:])) < 2: print(f"{thr:>4}일 클래스부족"); continue
     aL, cL = auc_lr(Fa, y), auc_lr(Fc, y)
     aT, cT = auc_tp(Fa, y), auc_tp(Fc, y)
-    print(f"{thr:>4}일 {y.mean()*100:>4.0f}% | {aL:>6.3f} {cL:>6.3f} {cL-aL:>+6.3f} | {aT:>7.3f} {cT:>7.3f} {cT-aT:>+6.3f} | {int(y[i2:].sum()):>6}")
+    print(f"{thr:>4}일 {y.mean()*100:>4.0f}% | {aL:>6.3f} {cL:>6.3f} {cL-aL:>+6.3f} | {aT:>7.3f} {cT:>7.3f} {cT-aT:>+7.3f} | {int(y[i2:].sum()):>6}")
