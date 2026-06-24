@@ -87,6 +87,39 @@ def auc_cnn(y):    # raw 3채널 시계열(IVT/제트/블로킹) -> 1D CNN end-t
     net.eval()
     with torch.no_grad(): pt = torch.sigmoid(net(Xt[i2:], bt[i2:])).cpu().numpy()
     return roc_auc_score(y[i2:], pt)
+def auc_lstm(y):    # raw 3채널 시계열 -> LSTM 인코더 end-to-end
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    X = np.stack([IVTw, JETw, BLKw], 2)                       # (n,64,3) seq,channel
+    mu = X[:i1].mean((0, 1), keepdims=True); sd = X[:i1].std((0, 1), keepdims=True) + 1e-8
+    X = (X - mu) / sd
+    b = (base - base[:i1].mean(0)) / (base[:i1].std(0) + 1e-8)
+    Xt = torch.tensor(X, dtype=torch.float32, device=dev); bt = torch.tensor(b, dtype=torch.float32, device=dev)
+    yt = torch.tensor(y, dtype=torch.float32, device=dev)
+    class L(nn.Module):
+        def __init__(s):
+            super().__init__(); s.lstm = nn.LSTM(3, 32, batch_first=True); s.fc = nn.Linear(34, 1)
+        def forward(s, x, bb):
+            o, _ = s.lstm(x); return s.fc(torch.cat([o[:, -1], bb], 1)).squeeze(-1)
+    torch.manual_seed(0); net = L().to(dev)
+    opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-3)
+    pw = torch.tensor((len(y[:i1]) - y[:i1].sum()) / max(y[:i1].sum(), 1), dtype=torch.float32, device=dev)
+    lossf = nn.BCEWithLogitsLoss(pos_weight=pw); best = -1; bs = None
+    for ep in range(200):
+        net.train(); opt.zero_grad(); lossf(net(Xt[:i1], bt[:i1]), yt[:i1]).backward(); opt.step()
+        if ep % 5 == 0 and len(np.unique(y[i1:i2])) > 1:
+            net.eval()
+            with torch.no_grad(): pv = torch.sigmoid(net(Xt[i1:i2], bt[i1:i2])).cpu().numpy()
+            v = roc_auc_score(y[i1:i2], pv)
+            if v > best: best = v; bs = copy.deepcopy(net.state_dict())
+    if bs is not None: net.load_state_dict(bs)
+    net.eval()
+    with torch.no_grad(): pt = torch.sigmoid(net(Xt[i2:], bt[i2:])).cpu().numpy()
+    return roc_auc_score(y[i2:], pt)
+def auc_mlp_raw(y):    # raw 시계열 flatten -> MLP (순서 무시)
+    X = np.hstack([np.stack([IVTw, JETw, BLKw], 1).reshape(len(steps), -1), base])
+    sc = StandardScaler().fit(X[:i1])
+    m = MLPClassifier((64,), max_iter=500, early_stopping=True, random_state=0).fit(sc.transform(X[:i1]), y[:i1])
+    return roc_auc_score(y[i2:], m.predict_proba(sc.transform(X[i2:]))[:, 1])
 print(f"\n[{REGION}] 6h n={n}, AR임계(85th)={THR:.0f}")
 print(f"\n  === 축1 인코딩 (분류기 TabPFN 고정) ===")
 print(f"  {'지속':>5} {'양성%':>5} | {'wavelet':>8} {'PCA':>7} {'raw':>7} | {'test양성':>6}")
@@ -100,3 +133,9 @@ for k in [4, 6, 8]:
     y = (steps >= k).astype(int)
     if len(np.unique(y[i2:])) < 2: print(f"  {k*6}h 클래스부족"); continue
     print(f"  {k*6:>4}h {y.mean()*100:>4.0f}% | {auc_tp(Xwav,y):>10.3f} {auc_mlp(Xwav,y):>8.3f} {auc_lr(Xwav,y):>7.3f} {auc_cnn(y):>8.3f} | {int(y[i2:].sum()):>6}")
+print(f"\n  === 축3 학습형 인코더 (raw 시계열 end-to-end): wavelet+TabPFN vs CNN/LSTM/MLP ===")
+print(f"  {'지속':>5} {'양성%':>5} | {'wav+TabPFN':>10} {'raw+CNN':>8} {'raw+LSTM':>9} {'raw+MLP':>8} | {'test양성':>6}")
+for k in [4, 6, 8]:
+    y = (steps >= k).astype(int)
+    if len(np.unique(y[i2:])) < 2: print(f"  {k*6}h 클래스부족"); continue
+    print(f"  {k*6:>4}h {y.mean()*100:>4.0f}% | {auc_tp(Xwav,y):>10.3f} {auc_cnn(y):>8.3f} {auc_lstm(y):>9.3f} {auc_mlp_raw(y):>8.3f} | {int(y[i2:].sum()):>6}")
