@@ -32,6 +32,7 @@ TPMODEL = os.environ.get("TABPFN_MODEL", "tabpfn-v2-classifier-v2_default.ckpt")
 
 IVT_FILE = {"ca": "ivt_sf_1980_2023.npy"}.get(REGION, f"ivt_{REGION}_1980_2023.npy")
 CIRC_FILE = {"ca": "circ_indices.npz"}.get(REGION, f"circ_indices_{REGION}.npz")
+TIMES_FILE = {"ca": "times_sf_1980_2023.npy"}.get(REGION, f"times_{REGION}_1980_2023.npy")
 
 def find(name):
     for p in [os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "raw", name),
@@ -45,6 +46,27 @@ ci = np.load(find(CIRC_FILE)); jet = ci["jet"].astype("float64"); blk = ci["bloc
 dmax = ivt.reshape(-1, 4).max(1); ND = len(dmax); THR = np.percentile(dmax, 85)
 T = len(ivt); ar6 = ivt > THR
 
+# --- 신규 피처셋 E 재료 (선별 통과 변수): 해면기압/추세, IVT방향, 직전AR활동, 운량, 다중스케일IVT ---
+# 전부 causal: 지표·IVT는 ≤ s, 강수규약상 기압/운량 순간값도 ≤ s.
+# Colab 전달용 사전계산 efeat_{region}.npz 가 있으면 그걸 쓰고(큰 raw 불필요),
+# 없으면 로컬에서 raw(openmeteo + era5 nc)로 직접 빌드.
+def find_opt(name):
+    try: return find(name)
+    except FileNotFoundError: return None
+_ef = find_opt(f"efeat_{REGION}.npz")
+if _ef is not None:
+    _z = np.load(_ef)
+    pmsl = _z["pmsl"].astype("float64"); cloud = _z["cloud"].astype("float64")
+    dir_sin = _z["dir_sin"].astype("float64"); dir_cos = _z["dir_cos"].astype("float64")
+else:
+    times = np.load(find(TIMES_FILE))
+    from screen_features_region import load_aux_6h, load_ivt_dir
+    aux = load_aux_6h(REGION, T)                     # openmeteo + enso + sst (T 정렬)
+    dir_sin, dir_cos = load_ivt_dir(REGION, times)   # IVT 방향 (없으면 None)
+    pmsl = aux["pressure_msl"]; cloud = aux["cloud_cover"]
+    if dir_sin is None:
+        dir_sin = np.zeros(T); dir_cos = np.zeros(T)
+
 def wl(a, lvl=5): return [c[-1] for c in pywt.swt(a, 'db2', level=lvl, trim_approx=True, norm=True)]
 
 runs = []; i = 0
@@ -54,31 +76,45 @@ while i < T:
         while j < T and ar6[j]: j += 1
         runs.append((i, j)); i = j
     else: i += 1
-FA, FB, FC, FD, steps, onset_day = [], [], [], [], [], []
+FA, FB, FC, FD, FE, steps, onset_day = [], [], [], [], [], [], []
 for s, e in runs:
     o = s // 4
     if s - 63 >= 0 and o - 64 >= 0 and o < ND and not (np.isnan(jet[o - 1]) or np.isnan(blk[o - 1])):
         intens = ivt[s - 3:s + 1].max()       # causal 강도(직전 24h 최대)
         ivw = wl(ivt[s - 63:s + 1])           # causal IVT 16일 wavelet (s 에서 끝)
         jw = wl(jet[o - 64:o]); bw = wl(blk[o - 64:o])   # causal 순환 wavelet (o-1 에서 끝)
+        d_row = ivw + [intens, jet[o - 1]] + jw + bw     # = full(D)
+        extra = [pmsl[s], pmsl[s] - pmsl[s - 4],          # 해면기압 + 24h 추세
+                 dir_sin[s], dir_cos[s],                  # IVT 방향
+                 ar6[max(0, s - 119):s + 1].mean(),       # 직전 30d AR활동
+                 ar6[max(0, s - 239):s + 1].mean(),       # 직전 60d AR활동
+                 cloud[s],                                # 운량
+                 ivt[s - 7:s + 1].max(), ivt[s - 11:s + 1].max(), ivt[s - 27:s + 1].max(),
+                 ivt[s - 27:s + 1].mean(), ivt[s - 27:s + 1].std()]   # 다중스케일 IVT
         FA.append([intens])
         FB.append(ivw + [intens])
         FC.append([intens, jet[o - 1]] + jw + bw)
-        FD.append(ivw + [intens, jet[o - 1]] + jw + bw)
+        FD.append(d_row)
+        FE.append(d_row + extra)              # E = full + 신규 선별 변수
         steps.append(e - s); onset_day.append(o)
-FA, FB, FC, FD = map(np.array, (FA, FB, FC, FD))
+FA, FB, FC, FD, FE = map(np.array, (FA, FB, FC, FD, FE))
 steps = np.array(steps); onset_day = np.array(onset_day); n = len(steps)
-FS = {"A": FA, "B": FB, "C": FC, "D": FD}
-FS_LABEL = {"A": "intensity     ", "B": "+IVT-temporal ", "C": "+circulation  ", "D": "full          "}
-CLFS = ["Logistic", "TabPFN", "LGBM"]
-
-from tabpfn import TabPFNClassifier
+FS = {"A": FA, "B": FB, "C": FC, "D": FD, "E": FE}
+FS_LABEL = {"A": "intensity     ", "B": "+IVT-temporal ", "C": "+circulation  ",
+            "D": "full          ", "E": "+신규선별(E)   "}
+try:
+    from tabpfn import TabPFNClassifier; HAS_TP = True
+except Exception:
+    HAS_TP = False                      # 로컬(torch 깨짐)에서는 TabPFN 건너뜀, Colab 에서만 포함
+CLFS = ["Logistic"] + (["TabPFN"] if HAS_TP else []) + ["LGBM"]
 try:
     from lightgbm import LGBMClassifier; HAS_LGBM = True
 except Exception:
     from sklearn.ensemble import HistGradientBoostingClassifier; HAS_LGBM = False
 
 def fit_predict(clf, Xtr, ytr, Xte):
+    med = np.nanmedian(Xtr, axis=0); med = np.where(np.isnan(med), 0.0, med)   # train-only 결측 대치
+    Xtr = np.where(np.isnan(Xtr), med, Xtr); Xte = np.where(np.isnan(Xte), med, Xte)
     if clf == "Logistic":
         sc = StandardScaler().fit(Xtr)
         m = LogisticRegression(max_iter=3000, C=0.5, class_weight="balanced").fit(sc.transform(Xtr), ytr)
@@ -138,9 +174,14 @@ for k in HORIZONS:
         dist = paired_boot(yk, preds)
         aA = roc_auc_score(yk, preds["A"]); loA, hiA = np.percentile(dist["A"], [2.5, 97.5])
         print(f"  [{c}]  A intensity(causal) AUC={aA:.3f} 95%CI[{loA:.3f},{hiA:.3f}]")
-        for f in ["B", "C", "D"]:
+        for f in ["B", "C", "D", "E"]:
             aX = roc_auc_score(yk, preds[f]); d = dist[f] - dist["A"]
             lo, hi = np.percentile(d, [2.5, 97.5]); pg = (d > 0).mean()
             flag = "*유의*" if pg >= 0.975 else ("동급" if pg > 0.5 else "효과없음")
             print(f"        {FS_LABEL[f]} AUC={aX:.3f}  Δ(강도위)={np.median(d):+.3f} "
                   f"95%CI[{lo:+.3f},{hi:+.3f}] P(>0)={pg:.2f} {flag}")
+        # 핵심 비교: 신규셋 E 가 기존 full(D) 를 실제로 넘는가
+        dED = dist["E"] - dist["D"]; loE, hiE = np.percentile(dED, [2.5, 97.5]); pgE = (dED > 0).mean()
+        flagE = "*유의*" if pgE >= 0.975 else ("동급" if pgE > 0.5 else "효과없음")
+        print(f"        >>> E vs D(full)  Δ={np.median(dED):+.3f} 95%CI[{loE:+.3f},{hiE:+.3f}] "
+              f"P(>0)={pgE:.2f} {flagE}")
