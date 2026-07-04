@@ -1,14 +1,12 @@
-# ===== Colab: TabPFN로 24h 지속 판별 — env / 예보 / env+예보 (+피처선택 규제) =====
-# 준비: feats_ca.npz, feats_uk.npz, feats_chile.npz 를 Colab에 (git pull).
-# TabPFN엔 C 규제 없음 -> "규제"=train에서 top-k 피처선택(SelectKBest)로 노이즈 env 억제.
-# 워크포워드 CV(임베고 64) + MCC 최대화 임계(train에서 골라 test 적용 = out-of-sample).
-# (tabpfn 설치는 노트북 셀에서: !pip install tabpfn -q)
+# ===== Colab: TabPFN — 24h 지속 예측. F1/MCC + CSI(늑대소년 관점). =====
+# 준비: feats_{ca,uk,chile}.npz 를 Colab에 (git pull). tabpfn 설치는 노트북 셀에서: !pip install tabpfn -q
+# "규제"=피처선택(SelectKBest). 임계=best-F1(train), out-of-sample. CSI=TP/(TP+FP+FN) (TN 제외).
 import numpy as np, torch
 from tabpfn import TabPFNClassifier
 from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.metrics import f1_score, matthews_corrcoef
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
-FEAT_DIR = ""   # repo 폴더 안에서 실행하면 빈 문자열
+FEAT_DIR = ""
 
 
 def make_folds(N, od, Nf=5, emb=64):
@@ -19,11 +17,11 @@ def make_folds(N, od, Nf=5, emb=64):
     return out
 
 
-def best_thr(yy, pp):
-    best = (-2.0, 0.5)
+def best_f1_thr(yy, pp):
+    best = (-1.0, 0.5)
     for t in np.unique(pp):
-        m = matthews_corrcoef(yy, (pp >= t).astype(int))
-        if m > best[0]: best = (m, t)
+        f = f1_score(yy, (pp >= t).astype(int), zero_division=0)
+        if f > best[0]: best = (f, t)
     return best[1]
 
 
@@ -35,23 +33,22 @@ def evalX(X, y, folds, k=None):
         med = np.nanmedian(Xtr, 0); med = np.where(np.isnan(med), 0.0, med)
         Xtr = np.where(np.isnan(Xtr), med, Xtr); Xte = np.where(np.isnan(Xte), med, Xte)
         if k is not None and k < Xtr.shape[1]:
-            sel = SelectKBest(f_classif, k=k).fit(Xtr, y[tr])
-            Xtr = sel.transform(Xtr); Xte = sel.transform(Xte)
+            sel = SelectKBest(f_classif, k=k).fit(Xtr, y[tr]); Xtr = sel.transform(Xtr); Xte = sel.transform(Xte)
         clf = TabPFNClassifier(device=DEV); clf.fit(Xtr, y[tr])
         ptr = clf.predict_proba(Xtr)[:, 1]; pte = clf.predict_proba(Xte)[:, 1]
-        thr = best_thr(y[tr], ptr)
-        pb.extend((pte >= thr).astype(int).tolist()); yt.extend(y[te].tolist())
+        th = best_f1_thr(y[tr], ptr)
+        pb.extend((pte >= th).astype(int).tolist()); yt.extend(y[te].tolist())
     yt = np.array(yt); pb = np.array(pb)
-    return f1_score(yt, pb, zero_division=0), matthews_corrcoef(yt, pb), len(yt)
+    TP = int(((pb == 1) & (yt == 1)).sum()); FP = int(((pb == 1) & (yt == 0)).sum())
+    FN = int(((pb == 0) & (yt == 1)).sum())
+    csi = TP / (TP + FP + FN) if (TP + FP + FN) else float("nan")
+    return f1_score(yt, pb, zero_division=0), matthews_corrcoef(yt, pb), csi, TP, FP, FN
 
 
 for r in ["ca", "uk", "chile"]:
-    d = np.load(FEAT_DIR + f"feats_{r}.npz")
-    FE, FC, y, oday = d["FE"], d["FC"], d["y"], d["oday"]
-    XA = np.hstack([FE, FC])
-    folds = make_folds(len(y), oday)
-    print(f"[{r}] N={len(y)} 지속={int(y.sum())} ({y.mean()*100:.0f}%)")
-    for tag, X, k in [("예보단독", FC, None), ("env만", FE, None),
-                      ("env+예보(전체37)", XA, None), ("env+예보 k=8", XA, 8), ("env+예보 k=5", XA, 5)]:
-        f1, mcc, n = evalX(X, y, folds, k)
-        print(f"  {tag:16s}: F1={f1:.3f} MCC={mcc:.3f} (n={n})")
+    d = np.load(FEAT_DIR + f"feats_{r}.npz"); FE, FC, y, oday = d["FE"], d["FC"], d["y"], d["oday"]
+    XA = np.hstack([FE, FC]); folds = make_folds(len(y), oday)
+    print(f"[{r}] N={len(y)} 실제지속={int(y.sum())} ({y.mean()*100:.0f}%)")
+    for tag, X, k in [("예보단독", FC, None), ("env+예보 k=8", XA, 8), ("env+예보(전체37)", XA, None)]:
+        f1, mcc, csi, TP, FP, FN = evalX(X, y, folds, k)
+        print(f"  {tag:16s}: F1={f1:.3f} MCC={mcc:.3f} CSI={csi:.3f} | TP={TP} 헛경보={FP} 놓침={FN}")
