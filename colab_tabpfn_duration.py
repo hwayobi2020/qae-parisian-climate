@@ -2,7 +2,7 @@
 # 준비: feats_ca.npz, feats_uk.npz, feats_chile.npz 를 Colab에 올림
 #   (git push 후 !git clone/pull, 또는 좌측 파일창에 직접 업로드, 또는 Drive 마운트)
 # 워크포워드 CV(임베고 64) + MCC 최대화 임계(train에서 골라 test 적용 = out-of-sample).
-!pip -q install tabpfn
+# (tabpfn 설치는 노트북 셀에서: !pip install tabpfn -q)
 import numpy as np, torch
 from tabpfn import TabPFNClassifier
 from sklearn.metrics import f1_score, matthews_corrcoef
