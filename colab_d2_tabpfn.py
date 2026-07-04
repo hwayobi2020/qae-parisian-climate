@@ -49,6 +49,7 @@ def boot(yt, pa, pb_):   # Δ = MCC(a) - MCC(b)
     dd = np.array(dd); return np.percentile(dd, 2.5), np.percentile(dd, 97.5), np.mean(dd > 0)
 
 
+REG = {}   # 지역별 (yt, p_raw, p_tabpfn) 저장 -> 통합검정
 for R in ["ca", "uk", "chile"]:
     d = np.load(FEAT + f"transfer_{R}.npz"); y, oday, S = d["y"], d["oday"], d["s"].astype(int)
     z = np.load(FEAT + f"d2feat_{R}.npz"); s2 = z["s"].astype(int); D2 = z["D2"]; D2min = z["D2min"]
@@ -61,3 +62,16 @@ for R in ["ca", "uk", "chile"]:
     yt1, p1 = tp_preds(D2s, y_s, od_s); m1 = matthews_corrcoef(yt1, p1)
     lo, hi, pp = boot(yt0, p1, p0)
     print(f"  기준 raw D-2 min MCC={m0:.3f} | 우리모델 TabPFN MCC={m1:.3f} | Δ={m1-m0:+.3f} 95%CI[{lo:+.3f},{hi:+.3f}] P(Δ>0)={pp:.3f}")
+    REG[R] = (yt0, p0, p1)
+
+# ===== 통합검정: 지역별 부트스트랩 후 평균 Δ의 CI (3지역 일관성 활용) =====
+rng = np.random.default_rng(0); md = []
+for _ in range(NB):
+    ds = []
+    for R in REG:
+        yt, p0, p1 = REG[R]; ix = rng.integers(0, len(yt), len(yt))
+        if len(np.unique(yt[ix])) < 2: ds = None; break
+        ds.append(matthews_corrcoef(yt[ix], p1[ix]) - matthews_corrcoef(yt[ix], p0[ix]))
+    if ds is not None: md.append(np.mean(ds))
+md = np.array(md); obs = np.mean([matthews_corrcoef(REG[R][0], REG[R][2]) - matthews_corrcoef(REG[R][0], REG[R][1]) for R in REG])
+print(f"\n[통합] 평균 Δ(3지역)={obs:+.3f}  95%CI[{np.percentile(md,2.5):+.3f},{np.percentile(md,97.5):+.3f}]  P(Δ>0)={np.mean(md>0):.3f}")
