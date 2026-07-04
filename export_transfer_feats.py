@@ -38,7 +38,7 @@ for REGION in ["ca", "uk", "chile"]:
             while j < T and ar6[j]: j += 1
             runs.append((i, j)); i = j
         else: i += 1
-    FE = []; XSEQ = []; FC = []; y = []; oday = []; fmask = []
+    FE = []; XSEQ = []; FC = []; y = []; oday = []; fmask = []; sidx = []
     for s, e in runs:
         o = s // 4; s0 = o * 4
         if not (s0 - 63 >= 0 and o - 64 >= 0 and o < ND and o < NG and not (np.isnan(jet[o - 1]) or np.isnan(blk[o - 1]))): continue
@@ -53,8 +53,8 @@ for REGION in ["ca", "uk", "chile"]:
         XSEQ.append(np.stack([np.log1p(w)] + list(pywt.swt(w, 'db2', level=5, trim_approx=True, norm=True)), axis=1))
         has = int(s) in fcmap
         FC.append(fcmap[int(s)] if has else [np.nan] * 5); fmask.append(has)
-        y.append(int(e - s >= KS)); oday.append(o)
+        y.append(int(e - s >= KS)); oday.append(o); sidx.append(s)
     FE = np.array(FE, float); XSEQ = np.array(XSEQ, float); FC = np.array(FC, float)
     y = np.array(y); oday = np.array(oday); fmask = np.array(fmask)
-    np.savez(f"transfer_{REGION}.npz", FE=FE, XSEQ=XSEQ, FC=FC, y=y, oday=oday, fmask=fmask)
+    np.savez(f"transfer_{REGION}.npz", FE=FE, XSEQ=XSEQ, FC=FC, y=y, oday=oday, fmask=fmask, s=np.array(sidx))
     print(f"{REGION}: FE={FE.shape} XSEQ={XSEQ.shape} 예보온셋={int(fmask.sum())}/{len(y)} 양성={int(y.sum())} -> transfer_{REGION}.npz")
