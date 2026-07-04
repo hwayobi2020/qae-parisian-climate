@@ -1,17 +1,16 @@
-# ===== Colab: 기준=raw 예보(min IVT). 우리모델=예보+LSTM인코더(pre-2000 시퀀스). leak-free. MCC. =====
+# ===== Colab: 기준=raw 예보(min IVT). 우리모델=예보+MLP인코더(pre-2000, env44=웨이블릿+종관+ENSO). leak-free. =====
 # 준비: transfer_{ca,uk,chile}.npz (git pull). tabpfn 설치 셀: !pip install tabpfn -q
-# LSTM 인코더: pre-2000 IVT+웨이블릿 시퀀스(64x7) BCE학습 -> 풀링 히든(2*hid) 인코더피처 -> 예보와 TabPFN 결합.
 import numpy as np, torch, torch.nn as nn
 from tabpfn import TabPFNClassifier
 from sklearn.metrics import roc_auc_score, matthews_corrcoef, f1_score
-DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HIDS = [4, 8, 16]
+DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HIDS = [4, 8, 16]; W = 16
 
 
-class CNNenc(nn.Module):
-    def __init__(s, cin, hid):
-        super().__init__(); s.c1 = nn.Conv1d(cin, 16, 5, padding=2); s.c2 = nn.Conv1d(16, hid, 5, padding=2); s.dp = nn.Dropout(0.3); s.head = nn.Linear(hid, 1)
-    def rep(s, x): h = torch.relu(s.c2(torch.relu(s.c1(x.transpose(1, 2))))); return h.mean(-1)   # (n,hid)
-    def forward(s, x): return s.head(s.dp(s.rep(x))).squeeze(-1)
+class MLPenc(nn.Module):
+    def __init__(s, cin, hid, w=W):
+        super().__init__(); s.f1 = nn.Linear(cin, w); s.dp = nn.Dropout(0.3); s.f2 = nn.Linear(w, hid); s.head = nn.Linear(hid, 1)
+    def rep(s, x): return torch.relu(s.f2(s.dp(torch.relu(s.f1(x)))))
+    def forward(s, x): return s.head(s.rep(x)).squeeze(-1)
 
 
 def folds(N, od, Nf=5, emb=64):
@@ -30,21 +29,20 @@ def bt(yy, pp):
     return b[1]
 
 
-def train_enc(XSEQ, y, pre, hid):
-    cmu = XSEQ[pre].reshape(-1, XSEQ.shape[-1]).mean(0); csd = XSEQ[pre].reshape(-1, XSEQ.shape[-1]).std(0) + 1e-8
-    Xs = (XSEQ - cmu) / csd
-    Xtr = torch.tensor(Xs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
-    torch.manual_seed(0); net = CNNenc(XSEQ.shape[-1], hid).to(DEV)
-    opt = torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=1e-2)
+def train_enc(FE, y, pre, hid):
+    mu = np.nanmean(FE[pre], 0); sd = np.nanstd(FE[pre], 0) + 1e-8; FEs = np.nan_to_num((FE - mu) / sd)
+    Xtr = torch.tensor(FEs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
+    torch.manual_seed(0); net = MLPenc(FE.shape[1], hid).to(DEV)
+    opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-2)
     pw = torch.tensor((len(y[pre]) - y[pre].sum()) / max(y[pre].sum(), 1), dtype=torch.float32, device=DEV)
     lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); npr = int(pre.sum())
-    for ep in range(150):
+    for ep in range(300):
         net.train(); perm = rng.permutation(npr)
         for b in range(0, npr, 64):
             bi = torch.as_tensor(perm[b:b + 64], device=DEV)
             opt.zero_grad(); lf(net(Xtr[bi]), yt[bi]).backward(); opt.step()
     net.eval()
-    with torch.no_grad(): return net.rep(torch.tensor(Xs, dtype=torch.float32, device=DEV)).cpu().numpy()
+    with torch.no_grad(): return net.rep(torch.tensor(FEs, dtype=torch.float32, device=DEV)).cpu().numpy()
 
 
 def base_raw(fcv, yf, odf):
@@ -69,15 +67,15 @@ def tpcomb(X, yf, odf):
 
 for r in ["ca", "uk", "chile"]:
     d = np.load(FEAT_DIR + f"transfer_{r}.npz")
-    XSEQ, FC, y, oday, fmask = d["XSEQ"], d["FC"], d["y"], d["oday"], d["fmask"].astype(bool)
+    FE, FC, y, oday, fmask = d["FE"], d["FC"], d["y"], d["oday"], d["fmask"].astype(bool)
     pre = oday < oday[fmask].min()
     sel = fmask; FCf = FC[sel]; yf = y[sel]; odf = oday[sel]; fcv = FCf.mean(1)
     ab, mb, fb = base_raw(fcv, yf, odf)
-    print(f"[{r}] pre-2000 {int(pre.sum())} | 예보온셋 {int(sel.sum())} 양성 {int(yf.sum())}")
+    print(f"[{r}] pre-2000 {int(pre.sum())} | 예보온셋 {int(sel.sum())} 양성 {int(yf.sum())} | env피처 {FE.shape[1]}")
     print(f"  [기준] raw 예보(min IVT): AUC={ab:.3f} MCC={mb:.3f} F1={fb:.3f}")
     a0, m0, f0 = tpcomb(fcv.reshape(-1, 1), yf, odf)
     print(f"  우리모델(예보만)          : AUC={a0:.3f} MCC={m0:.3f} F1={f0:.3f} | vs기준 {m0 - mb:+.3f}")
     for hid in HIDS:
-        ENCf = train_enc(XSEQ, y, pre, hid)[sel]
+        ENCf = train_enc(FE, y, pre, hid)[sel]
         a, m, f = tpcomb(np.column_stack([fcv, ENCf]), yf, odf)
-        print(f"  우리모델(예보+CNN인코더 hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | vs기준 {m - mb:+.3f}")
+        print(f"  우리모델(예보+MLP인코더 hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | vs기준 {m - mb:+.3f}")
