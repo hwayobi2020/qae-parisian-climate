@@ -5,7 +5,7 @@
 import numpy as np, torch, torch.nn as nn
 from tabpfn import TabPFNClassifier
 from sklearn.metrics import matthews_corrcoef
-DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT = ""; NB = 3000; W = 16; HIDS = [4, 8, 16]
+DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT = ""; NB = 3000; W = 16; HID = 8   # hid=8 고정(원래 값)
 
 
 class MLPenc(nn.Module):
@@ -89,15 +89,10 @@ for R in ["ca", "uk", "chile"]:
     keep = [i for i in range(len(S)) if int(S[i]) in d2map]
     ridx = np.array([d2map[int(S[i])] for i in keep])
     fcv = D2min[ridx]; D2s = D2[ridx]; y_s = y[keep]; od_s = oday[keep]
-    # 인코더: pre-2000 val로 hid 선택 (leak-free)
-    pre = oday < min(oday[keep]); pidx = np.where(pre)[0]; cut = int(len(pidx) * 0.8); tri, vai = pidx[:cut], pidx[cut:]
-    best = (-2., None)
-    for hid in HIDS:
-        net, FEs = fit_enc(FE, y, tri, hid); th = bt(y[tri], prob(net, FEs, tri))
-        mv = matthews_corrcoef(y[vai], (prob(net, FEs, vai) >= th).astype(int))
-        if mv > best[0]: best = (mv, hid)
-    sel_hid = best[1]; net, FEs = fit_enc(FE, y, pidx, sel_hid); ENC = rep(net, FEs)[keep]
-    print(f"[{R}] n={len(keep)} 양성률={y_s.mean():.2f} fcv-y상관={np.corrcoef(fcv, y_s)[0,1]:+.2f} 선택hid={sel_hid}")
+    # 인코더: pre-2000 학습, hid=8 고정 (leak-free)
+    pre = oday < min(oday[keep]); pidx = np.where(pre)[0]
+    net, FEs = fit_enc(FE, y, pidx, HID); ENC = rep(net, FEs)[keep]
+    print(f"[{R}] n={len(keep)} 양성률={y_s.mean():.2f} fcv-y상관={np.corrcoef(fcv, y_s)[0,1]:+.2f} hid={HID}")
     yt0, p0 = raw_preds(fcv, y_s, od_s); m0 = matthews_corrcoef(yt0, p0)
     yt1, p1 = tp_preds(D2s, y_s, od_s); m1 = matthews_corrcoef(yt1, p1)
     yt2, p2 = tp_preds(np.column_stack([D2s, ENC]), y_s, od_s); m2 = matthews_corrcoef(yt2, p2)
