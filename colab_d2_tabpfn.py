@@ -1,6 +1,7 @@
 # ===== Colab: D-2(2일전) 예보 프레임 TabPFN =====
-# 3단: 기준(raw D-2 min) / 예보만(TabPFN 9피처) / 예보+인코더(TabPFN 9 + env MLP인코더). 인코더 pre-2000(leak-free).
-# 준비: transfer_{r}.npz + d2feat_{r}.npz (git pull). !pip install tabpfn -q
+# 3단: 기준(raw D-2 min) / 예보만(TabPFN 9피처) / 예보+인코더(TabPFN 9 + env MLP인코더).
+# 인코더 env = D-2 컷(온셋 2일전 s0-8에서 관측 끝냄, 예보 시점과 정합). pre-2000 학습(leak-free).
+# 준비: transfer_{r}.npz + d2feat_{r}.npz + d2env_{r}.npz (git pull). !pip install tabpfn -q
 import numpy as np, torch, torch.nn as nn
 from tabpfn import TabPFNClassifier
 from sklearn.metrics import matthews_corrcoef
@@ -80,7 +81,9 @@ def boot(yt, pa, pb_):
 
 REG = {}
 for R in ["ca", "uk", "chile"]:
-    d = np.load(FEAT + f"transfer_{R}.npz"); FE, y, oday, S = d["FE"], d["y"], d["oday"], d["s"].astype(int)
+    d = np.load(FEAT + f"transfer_{R}.npz"); y, oday, S = d["y"], d["oday"], d["s"].astype(int)
+    de = np.load(FEAT + f"d2env_{R}.npz"); FE = de["FE"]              # D-2 컷 env (transfer와 동일 온셋 순서)
+    assert np.array_equal(de["s"].astype(int), S), "d2env-transfer 온셋 불일치"
     z = np.load(FEAT + f"d2feat_{R}.npz"); s2 = z["s"].astype(int); D2 = z["D2"]; D2min = z["D2min"]
     d2map = {int(s2[k]): k for k in range(len(s2))}
     keep = [i for i in range(len(S)) if int(S[i]) in d2map]
