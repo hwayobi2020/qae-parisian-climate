@@ -7,10 +7,10 @@ from sklearn.metrics import roc_auc_score, matthews_corrcoef, f1_score
 DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HIDS = [4, 8, 16]
 
 
-class LSTMenc(nn.Module):
+class CNNenc(nn.Module):
     def __init__(s, cin, hid):
-        super().__init__(); s.lstm = nn.LSTM(cin, hid, batch_first=True, bidirectional=True); s.dp = nn.Dropout(0.3); s.head = nn.Linear(hid * 2, 1)
-    def rep(s, x): o, _ = s.lstm(x); return o.mean(1)
+        super().__init__(); s.c1 = nn.Conv1d(cin, 16, 5, padding=2); s.c2 = nn.Conv1d(16, hid, 5, padding=2); s.dp = nn.Dropout(0.3); s.head = nn.Linear(hid, 1)
+    def rep(s, x): h = torch.relu(s.c2(torch.relu(s.c1(x.transpose(1, 2))))); return h.mean(-1)   # (n,hid)
     def forward(s, x): return s.head(s.dp(s.rep(x))).squeeze(-1)
 
 
@@ -34,7 +34,7 @@ def train_enc(XSEQ, y, pre, hid):
     cmu = XSEQ[pre].reshape(-1, XSEQ.shape[-1]).mean(0); csd = XSEQ[pre].reshape(-1, XSEQ.shape[-1]).std(0) + 1e-8
     Xs = (XSEQ - cmu) / csd
     Xtr = torch.tensor(Xs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
-    torch.manual_seed(0); net = LSTMenc(XSEQ.shape[-1], hid).to(DEV)
+    torch.manual_seed(0); net = CNNenc(XSEQ.shape[-1], hid).to(DEV)
     opt = torch.optim.AdamW(net.parameters(), lr=1e-3, weight_decay=1e-2)
     pw = torch.tensor((len(y[pre]) - y[pre].sum()) / max(y[pre].sum(), 1), dtype=torch.float32, device=DEV)
     lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); npr = int(pre.sum())
@@ -80,4 +80,4 @@ for r in ["ca", "uk", "chile"]:
     for hid in HIDS:
         ENCf = train_enc(XSEQ, y, pre, hid)[sel]
         a, m, f = tpcomb(np.column_stack([fcv, ENCf]), yf, odf)
-        print(f"  우리모델(예보+LSTM인코더 hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | vs기준 {m - mb:+.3f}")
+        print(f"  우리모델(예보+CNN인코더 hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | vs기준 {m - mb:+.3f}")
