@@ -1,9 +1,10 @@
-# ===== Colab: 기준=raw 예보(min IVT). 우리모델=예보+MLP인코더(pre-2000, env44=웨이블릿+종관+ENSO). leak-free. =====
+# ===== Colab: 기준=raw 예보. 인코더 입력 피처수 k 훑기(pre-2000 SelectKBest). MLP hid=8. leak-free. =====
 # 준비: transfer_{ca,uk,chile}.npz (git pull). tabpfn 설치 셀: !pip install tabpfn -q
 import numpy as np, torch, torch.nn as nn
 from tabpfn import TabPFNClassifier
-from sklearn.metrics import roc_auc_score, matthews_corrcoef, f1_score
-DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HIDS = [4, 8, 16]; W = 16
+from sklearn.feature_selection import SelectKBest, f_classif
+from sklearn.metrics import matthews_corrcoef
+DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HID = 8; W = 16; KS = [8, 16, 24, 32, 44]
 
 
 class MLPenc(nn.Module):
@@ -29,10 +30,13 @@ def bt(yy, pp):
     return b[1]
 
 
-def train_enc(FE, y, pre, hid):
-    mu = np.nanmean(FE[pre], 0); sd = np.nanstd(FE[pre], 0) + 1e-8; FEs = np.nan_to_num((FE - mu) / sd)
+def train_enc(FE, y, pre, hid, k):
+    FEz = np.nan_to_num(FE)
+    if k < FE.shape[1]:
+        sk = SelectKBest(f_classif, k=k).fit(FEz[pre], y[pre]); FEz = sk.transform(FEz)   # 선택은 pre-2000만
+    mu = FEz[pre].mean(0); sd = FEz[pre].std(0) + 1e-8; FEs = (FEz - mu) / sd
     Xtr = torch.tensor(FEs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
-    torch.manual_seed(0); net = MLPenc(FE.shape[1], hid).to(DEV)
+    torch.manual_seed(0); net = MLPenc(FEz.shape[1], hid).to(DEV)
     opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-2)
     pw = torch.tensor((len(y[pre]) - y[pre].sum()) / max(y[pre].sum(), 1), dtype=torch.float32, device=DEV)
     lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); npr = int(pre.sum())
@@ -46,23 +50,21 @@ def train_enc(FE, y, pre, hid):
 
 
 def base_raw(fcv, yf, odf):
-    ytb = []; pb = []; pp = np.full(len(yf), np.nan)
+    ytb = []; pb = []
     for tr, te in folds(len(yf), odf):
         if len(tr) < 40 or len(np.unique(yf[tr])) < 2: continue
-        th = bt(yf[tr], fcv[tr]); pp[te] = fcv[te]; pb.extend((fcv[te] >= th).astype(int)); ytb.extend(yf[te])
-    ok = ~np.isnan(pp); ytb = np.array(ytb); pb = np.array(pb)
-    return roc_auc_score(yf[ok], pp[ok]), matthews_corrcoef(ytb, pb), f1_score(ytb, pb, zero_division=0)
+        th = bt(yf[tr], fcv[tr]); pb.extend((fcv[te] >= th).astype(int)); ytb.extend(yf[te])
+    return matthews_corrcoef(np.array(ytb), np.array(pb))
 
 
 def tpcomb(X, yf, odf):
-    ytb = []; pb = []; pp = np.full(len(yf), np.nan)
+    ytb = []; pb = []
     for tr, te in folds(len(yf), odf):
         if len(tr) < 40 or len(np.unique(yf[tr])) < 2: continue
         m = TabPFNClassifier(device=DEV); m.fit(np.nan_to_num(X[tr]), yf[tr])
         ptr = m.predict_proba(np.nan_to_num(X[tr]))[:, 1]; pte = m.predict_proba(np.nan_to_num(X[te]))[:, 1]
-        pp[te] = pte; th = bt(yf[tr], ptr); pb.extend((pte >= th).astype(int)); ytb.extend(yf[te])
-    ok = ~np.isnan(pp); ytb = np.array(ytb); pb = np.array(pb)
-    return roc_auc_score(yf[ok], pp[ok]), matthews_corrcoef(ytb, pb), f1_score(ytb, pb, zero_division=0)
+        th = bt(yf[tr], ptr); pb.extend((pte >= th).astype(int)); ytb.extend(yf[te])
+    return matthews_corrcoef(np.array(ytb), np.array(pb))
 
 
 for r in ["ca", "uk", "chile"]:
@@ -70,12 +72,9 @@ for r in ["ca", "uk", "chile"]:
     FE, FC, y, oday, fmask = d["FE"], d["FC"], d["y"], d["oday"], d["fmask"].astype(bool)
     pre = oday < oday[fmask].min()
     sel = fmask; FCf = FC[sel]; yf = y[sel]; odf = oday[sel]; fcv = FCf.mean(1)
-    ab, mb, fb = base_raw(fcv, yf, odf)
-    print(f"[{r}] pre-2000 {int(pre.sum())} | 예보온셋 {int(sel.sum())} 양성 {int(yf.sum())} | env피처 {FE.shape[1]}")
-    print(f"  [기준] raw 예보(min IVT): AUC={ab:.3f} MCC={mb:.3f} F1={fb:.3f}")
-    a0, m0, f0 = tpcomb(fcv.reshape(-1, 1), yf, odf)
-    print(f"  우리모델(예보만)          : AUC={a0:.3f} MCC={m0:.3f} F1={f0:.3f} | vs기준 {m0 - mb:+.3f}")
-    for hid in HIDS:
-        ENCf = train_enc(FE, y, pre, hid)[sel]
-        a, m, f = tpcomb(np.column_stack([fcv, ENCf]), yf, odf)
-        print(f"  우리모델(예보+MLP인코더 hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | vs기준 {m - mb:+.3f}")
+    mb = base_raw(fcv, yf, odf)
+    print(f"[{r}] 양성 {int(yf.sum())} | [기준] raw 예보 MCC={mb:.3f} | MLP hid={HID}, 피처수 k 훑기")
+    for k in KS:
+        ENCf = train_enc(FE, y, pre, HID, k)[sel]
+        m = tpcomb(np.column_stack([fcv, ENCf]), yf, odf)
+        print(f"  k={k:2d}: 예보+인코더 MCC={m:.3f} | vs기준 {m - mb:+.3f}")
