@@ -31,26 +31,17 @@ def bt(yy, pp):
 
 
 def train_enc(FE, y, pre, hid):
-    idx = np.where(pre)[0]; cut = int(len(idx) * 0.8)
-    tr_i, va_i = idx[:cut], idx[cut:]
-    mu = np.nanmean(FE[tr_i], 0); sd = np.nanstd(FE[tr_i], 0) + 1e-8; FEs = np.nan_to_num((FE - mu) / sd)
-    Xtr = torch.tensor(FEs[tr_i], dtype=torch.float32, device=DEV); ytr = torch.tensor(y[tr_i], dtype=torch.float32, device=DEV)
-    Xva = torch.tensor(FEs[va_i], dtype=torch.float32, device=DEV); yva = y[va_i]
+    mu = np.nanmean(FE[pre], 0); sd = np.nanstd(FE[pre], 0) + 1e-8; FEs = np.nan_to_num((FE - mu) / sd)
+    Xtr = torch.tensor(FEs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
     torch.manual_seed(0); net = MLPenc(FE.shape[1], hid).to(DEV)
     opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-2)
-    pw = torch.tensor((len(tr_i) - float(ytr.sum())) / max(float(ytr.sum()), 1), dtype=torch.float32, device=DEV)
-    lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); nt = len(tr_i); best = (-2.0, None)
+    pw = torch.tensor((len(y[pre]) - y[pre].sum()) / max(y[pre].sum(), 1), dtype=torch.float32, device=DEV)
+    lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); npr = int(pre.sum())
     for ep in range(300):
-        net.train(); perm = rng.permutation(nt)
-        for b in range(0, nt, 64):
+        net.train(); perm = rng.permutation(npr)
+        for b in range(0, npr, 64):
             bi = torch.as_tensor(perm[b:b + 64], device=DEV)
-            opt.zero_grad(); lf(net(Xtr[bi]), ytr[bi]).backward(); opt.step()
-        if ep % 10 == 0 and len(np.unique(yva)) > 1:
-            net.eval()
-            with torch.no_grad(): pv = torch.sigmoid(net(Xva)).cpu().numpy()
-            th = bt(yva, pv); mc = matthews_corrcoef(yva, (pv >= th).astype(int))
-            if mc > best[0]: best = (mc, copy.deepcopy(net.state_dict()))
-    if best[1] is not None: net.load_state_dict(best[1])
+            opt.zero_grad(); lf(net(Xtr[bi]), yt[bi]).backward(); opt.step()
     net.eval()
     with torch.no_grad(): return net.rep(torch.tensor(FEs, dtype=torch.float32, device=DEV)).cpu().numpy()
 
