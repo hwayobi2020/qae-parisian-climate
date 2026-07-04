@@ -1,14 +1,13 @@
-# ===== Colab: 작은 MLP인코더(pre-2000) + 예보 -> TabPFN 결합. leak-free. MCC. =====
+# ===== Colab: MLP인코더(pre-2000) 크기 4/8/16 + 예보 -> TabPFN 결합. leak-free. MCC. =====
 # 준비: transfer_{ca,uk,chile}.npz (git pull). tabpfn 설치 셀: !pip install tabpfn -q
-# pre-2000으로 작은 MLP 학습 -> 히든(8d) 인코더피처 -> 2000+ [예보+인코더] TabPFN 결합 (원시 env는 중복이라 뺌).
 import numpy as np, torch, torch.nn as nn
 from tabpfn import TabPFNClassifier
 from sklearn.metrics import roc_auc_score, matthews_corrcoef, f1_score
-DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HID = 8; W = 16
+DEV = "cuda" if torch.cuda.is_available() else "cpu"; FEAT_DIR = ""; HIDS = [4, 8, 16]; W = 16
 
 
 class MLPenc(nn.Module):
-    def __init__(s, cin, hid=HID, w=W):
+    def __init__(s, cin, hid, w=W):
         super().__init__(); s.f1 = nn.Linear(cin, w); s.dp = nn.Dropout(0.3); s.f2 = nn.Linear(w, hid); s.head = nn.Linear(hid, 1)
     def rep(s, x): return torch.relu(s.f2(s.dp(torch.relu(s.f1(x)))))
     def forward(s, x): return s.head(s.rep(x)).squeeze(-1)
@@ -30,10 +29,10 @@ def bt(yy, pp):
     return b[1]
 
 
-def train_enc(FE, y, pre):
+def train_enc(FE, y, pre, hid):
     mu = np.nanmean(FE[pre], 0); sd = np.nanstd(FE[pre], 0) + 1e-8; FEs = np.nan_to_num((FE - mu) / sd)
     Xtr = torch.tensor(FEs[pre], dtype=torch.float32, device=DEV); yt = torch.tensor(y[pre], dtype=torch.float32, device=DEV)
-    torch.manual_seed(0); net = MLPenc(FE.shape[1]).to(DEV)
+    torch.manual_seed(0); net = MLPenc(FE.shape[1], hid).to(DEV)
     opt = torch.optim.AdamW(net.parameters(), lr=2e-3, weight_decay=1e-2)
     pw = torch.tensor((len(y[pre]) - y[pre].sum()) / max(y[pre].sum(), 1), dtype=torch.float32, device=DEV)
     lf = nn.BCEWithLogitsLoss(pos_weight=pw); rng = np.random.default_rng(0); npr = int(pre.sum())
@@ -61,9 +60,11 @@ for r in ["ca", "uk", "chile"]:
     d = np.load(FEAT_DIR + f"transfer_{r}.npz")
     FE, FC, y, oday, fmask = d["FE"], d["FC"], d["y"], d["oday"], d["fmask"].astype(bool)
     pre = oday < oday[fmask].min()
-    ENC = train_enc(FE, y, pre)
-    sel = fmask; FCf = FC[sel]; ENCf = ENC[sel]; yf = y[sel]; odf = oday[sel]
-    print(f"[{r}] pre-2000 {int(pre.sum())} | 예보온셋 {int(sel.sum())} 양성 {int(yf.sum())} | 인코더 hid={HID} | TabPFN 결합")
-    for tag, X in [("예보단독", FCf), ("예보+인코더", np.hstack([FCf, ENCf]))]:
-        a, m, f = tpcomb(X, yf, odf)
-        print(f"  {tag:12s}: AUC={a:.3f} MCC={m:.3f} F1={f:.3f}")
+    sel = fmask; FCf = FC[sel]; yf = y[sel]; odf = oday[sel]
+    ab, mb, fb = tpcomb(FCf, yf, odf)
+    print(f"[{r}] pre-2000 {int(pre.sum())} | 예보온셋 {int(sel.sum())} 양성 {int(yf.sum())}")
+    print(f"  예보단독        : AUC={ab:.3f} MCC={mb:.3f} F1={fb:.3f}")
+    for hid in HIDS:
+        ENCf = train_enc(FE, y, pre, hid)[sel]
+        a, m, f = tpcomb(np.hstack([FCf, ENCf]), yf, odf)
+        print(f"  예보+인코더(hid={hid:2d}): AUC={a:.3f} MCC={m:.3f} F1={f:.3f} | env효과 {m - mb:+.3f}")
