@@ -70,8 +70,8 @@ def boot(yt, pa, pb_):
 
 REG = {}
 for R in REGIONS:
-    if not os.path.exists(f"opdenom_{R}.npz"): print(f"[{R}] opdenom 없음 -> skip"); continue
-    d = np.load(f"opdenom_{R}.npz"); D2 = d["D2"]; fcv = d["fcv"]; y = d["y"]; omin = d["omin"]; oday = d["oday"]; THR = float(d["THR"])
+    if not os.path.exists(f"opdenom_full_{R}.npz"): print(f"[{R}] opdenom_full 없음 -> skip"); continue
+    d = np.load(f"opdenom_full_{R}.npz"); D2 = d["D2"]; fcv = d["fcv"]; y = d["y"]; omin = d["omin"]; oday = d["oday"]; THR = float(d["THR"])
     yt0, p0, s0 = raw_preds(fcv, y, oday, THR); f0 = f1_score(yt0, p0, zero_division=0)
     print(f"[{R}] n={len(y)} 지속률={y.mean():.3f} THR={THR:.1f} | 기준 raw F1={f0:.3f} AUC={roc_auc_score(yt0, s0):.3f}")
     REG[R] = {"_raw": (yt0, p0)}
