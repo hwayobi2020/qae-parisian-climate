@@ -28,13 +28,14 @@ for REGION in ["ca", "uk", "chile"]:
             while j < T and ar6[j]: j += 1
             runs.append((i, j)); i = j
         else: i += 1
-    FE = []; sidx = []
+    FE = []; sidx = []; omins = []
     for s, e in runs:
         o = s // 4; s0 = o * 4
         # transfer와 동일 포함 기준 (온셋 집합 일치)
         if not (s0 - 63 >= 0 and o - 64 >= 0 and o < ND and o < NG and not (np.isnan(jet[o - 1]) or np.isnan(blk[o - 1]))): continue
         c = s0 - GAP; od = o - 2                     # D-2 컷 시점
         sidx.append(s)
+        omins.append(float(ivt[s + 1:s + 4].min()) if s + 4 <= T else np.nan)   # 회귀 타깃=관측 연속구간 min IVT(온셋+6/12/18)
         # D-2 컷이 불가능하거나(초반) daily env NaN이면 NaN 행
         if not (c - 63 >= 0 and od - 64 >= 0 and od >= 1 and od < NG and not (np.isnan(jet[od - 1]) or np.isnan(blk[od - 1]))):
             FE.append([np.nan] * 44); continue
@@ -46,5 +47,5 @@ for REGION in ["ca", "uk", "chile"]:
                  ivt[c - 27:c + 1].mean(), ivt[c - 27:c + 1].std()]
         FE.append(d_row + extra + [g[od - 1] for g in GRID] + [ea[c], ep[c]])
     FE = np.array(FE, float)
-    np.savez(f"d2env_{REGION}.npz", s=np.array(sidx), FE=FE)
-    print(f"{REGION}: FE={FE.shape} (D-2컷) | NaN행 {int(np.isnan(FE).any(1).sum())}/{len(FE)} -> d2env_{REGION}.npz")
+    np.savez(f"d2env_{REGION}.npz", s=np.array(sidx), FE=FE, THR=THR, omin=np.array(omins, float))
+    print(f"{REGION}: FE={FE.shape} (D-2컷) THR={THR:.1f} | NaN행 {int(np.isnan(FE).any(1).sum())}/{len(FE)} -> d2env_{REGION}.npz")
