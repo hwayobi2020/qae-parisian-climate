@@ -30,9 +30,11 @@ def p_tabpfn(Xtr, ytr, Xte):
 
 def p_tabnet(Xtr, ytr, Xte):
     sc = StandardScaler().fit(Xtr)
+    bs = max(16, len(Xtr) // 4)                       # ~4배치, 배치크기 1 방지
     m = TabNetRegressor(verbose=0, device_name=DEV, seed=0)
-    m.fit(sc.transform(Xtr), ytr.reshape(-1, 1).astype("float32"), max_epochs=150, batch_size=256, drop_last=False)
-    return m.predict(sc.transform(Xte)).ravel()
+    m.fit(sc.transform(Xtr).astype("float32"), ytr.reshape(-1, 1).astype("float32"),
+          max_epochs=150, batch_size=bs, virtual_batch_size=bs, drop_last=True)   # drop_last로 크기1 잔여배치 제거
+    return m.predict(sc.transform(Xte).astype("float32")).ravel()
 
 
 class LSTMreg(nn.Module):
