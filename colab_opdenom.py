@@ -1,6 +1,6 @@
-# ===== Colab: 예보온셋 분모(TT+FT, 운영정합)에서 모델 비교 — CA·UK(·Chile) =====
-# train/test 둘 다 예보온셋(TT+FT). 회귀 omin -> THR 판정 -> F1. 입력 opdenom_{r}.npz.
-# 준비: opdenom_{ca,uk}.npz (git pull). !pip install tabpfn lightgbm pytorch-tabnet -q
+# ===== Colab: 0.5THR 완전분모(TT+TF+FT+FF)에서 모델 비교 — 3지역 × 지속 horizon 24h·30h =====
+# 회귀 omin -> THR 판정 -> F1. 입력 opdenom_full_{r}.npz(24h) / opdenom_full_{r}_30h.npz(30h).
+# 준비: opdenom_full_{ca,uk,chile}{,_30h}.npz (git pull). !pip install tabpfn lightgbm pytorch-tabnet -q
 import numpy as np, torch, torch.nn as nn, os
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
@@ -68,30 +68,34 @@ def boot(yt, pa, pb_):
     dd = np.array(dd); return np.percentile(dd, 2.5), np.percentile(dd, 97.5), np.mean(dd > 0)
 
 
-REG = {}
-for R in REGIONS:
-    if not os.path.exists(f"opdenom_full_{R}.npz"): print(f"[{R}] opdenom_full 없음 -> skip"); continue
-    d = np.load(f"opdenom_full_{R}.npz"); D2 = d["D2"]; fcv = d["fcv"]; y = d["y"]; omin = d["omin"]; oday = d["oday"]; THR = float(d["THR"])
-    yt0, p0, s0 = raw_preds(fcv, y, oday, THR); f0 = f1_score(yt0, p0, zero_division=0)
-    print(f"[{R}] n={len(y)} 지속률={y.mean():.3f} THR={THR:.1f} | 기준 raw F1={f0:.3f} AUC={roc_auc_score(yt0, s0):.3f}")
-    REG[R] = {"_raw": (yt0, p0)}
-    for name, pf in MODELS.items():
-        yt, pb, sc = model_preds(pf, D2, omin, y, oday, THR)
-        lo, hi, pp = boot(yt0, pb, p0)
-        print(f"  {name:7s}: F1={f1_score(yt, pb, zero_division=0):.3f} AUC={roc_auc_score(yt, sc):.3f} AUPRC={average_precision_score(yt, sc):.3f}  ΔF1={f1_score(yt, pb, zero_division=0)-f0:+.3f} CI[{lo:+.3f},{hi:+.3f}] P={pp:.3f}")
-        REG[R][name] = (yt, pb)
+HORIZONS = [("", "24h"), ("_30h", "30h")]   # 지속 임계 24h(opdenom_full_{r}.npz) / 30h(opdenom_full_{r}_30h.npz)
+for suf, hlab in HORIZONS:
+    print(f"\n========== 지속 horizon {hlab} ==========")
+    REG = {}
+    for R in REGIONS:
+        fn = f"opdenom_full_{R}{suf}.npz"
+        if not os.path.exists(fn): print(f"[{R} {hlab}] {fn} 없음 -> skip"); continue
+        d = np.load(fn); D2 = d["D2"]; fcv = d["fcv"]; y = d["y"]; omin = d["omin"]; oday = d["oday"]; THR = float(d["THR"])
+        yt0, p0, s0 = raw_preds(fcv, y, oday, THR); f0 = f1_score(yt0, p0, zero_division=0)
+        print(f"[{R} {hlab}] n={len(y)} 지속률={y.mean():.3f} THR={THR:.1f} | 기준 raw F1={f0:.3f} AUC={roc_auc_score(yt0, s0):.3f}")
+        REG[R] = {"_raw": (yt0, p0)}
+        for name, pf in MODELS.items():
+            yt, pb, sc = model_preds(pf, D2, omin, y, oday, THR)
+            lo, hi, pp = boot(yt0, pb, p0)
+            print(f"  {name:7s}: F1={f1_score(yt, pb, zero_division=0):.3f} AUC={roc_auc_score(yt, sc):.3f} AUPRC={average_precision_score(yt, sc):.3f}  ΔF1={f1_score(yt, pb, zero_division=0)-f0:+.3f} CI[{lo:+.3f},{hi:+.3f}] P={pp:.3f}")
+            REG[R][name] = (yt, pb)
 
-# ===== 통합검정: 모델별 평균 ΔF1(지역 부트스트랩) =====
-print("\n[통합 ΔF1(vs raw), 지역 평균]")
-for name in MODELS:
-    rng = np.random.default_rng(0); md = []
-    for _ in range(NB):
-        ds = []
-        for R in REG:
-            yt0, p0 = REG[R]["_raw"]; _, pm = REG[R][name]; ix = rng.integers(0, len(yt0), len(yt0))
-            if len(np.unique(yt0[ix])) < 2: ds = None; break
-            ds.append(f1_score(yt0[ix], pm[ix], zero_division=0) - f1_score(yt0[ix], p0[ix], zero_division=0))
-        if ds is not None: md.append(np.mean(ds))
-    md = np.array(md)
-    obs = np.mean([f1_score(REG[R]["_raw"][0], REG[R][name][1], zero_division=0) - f1_score(REG[R]["_raw"][0], REG[R]["_raw"][1], zero_division=0) for R in REG])
-    print(f"  {name:7s} 평균ΔF1={obs:+.3f}  95%CI[{np.percentile(md,2.5):+.3f},{np.percentile(md,97.5):+.3f}]  P(Δ>0)={np.mean(md>0):.3f}")
+    # ===== 통합검정: 모델별 평균 ΔF1(지역 부트스트랩) =====
+    print(f"[통합 ΔF1(vs raw), 지역 평균 — {hlab}]")
+    for name in MODELS:
+        rng = np.random.default_rng(0); md = []
+        for _ in range(NB):
+            ds = []
+            for R in REG:
+                yt0, p0 = REG[R]["_raw"]; _, pm = REG[R][name]; ix = rng.integers(0, len(yt0), len(yt0))
+                if len(np.unique(yt0[ix])) < 2: ds = None; break
+                ds.append(f1_score(yt0[ix], pm[ix], zero_division=0) - f1_score(yt0[ix], p0[ix], zero_division=0))
+            if ds is not None: md.append(np.mean(ds))
+        md = np.array(md)
+        obs = np.mean([f1_score(REG[R]["_raw"][0], REG[R][name][1], zero_division=0) - f1_score(REG[R]["_raw"][0], REG[R]["_raw"][1], zero_division=0) for R in REG])
+        print(f"  {name:7s} 평균ΔF1={obs:+.3f}  95%CI[{np.percentile(md,2.5):+.3f},{np.percentile(md,97.5):+.3f}]  P(Δ>0)={np.mean(md>0):.3f}")

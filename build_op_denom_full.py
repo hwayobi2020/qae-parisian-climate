@@ -1,10 +1,10 @@
-"""0.5THR 전체 분모 (TT+TF+FT+FF) + D-2컷 env-44(인코더용) + 3클래스 라벨.
+"""0.5THR 전체 분모 (TT+TF+FT+FF) — 지속 horizon 24h·30h.
 - 후보 = 관측 온셋(d2c00, TT+TF) + near-miss(d2c00fa, FT+FF).
-- 피처 = 예보 peak 정렬(target day 리드 48/54/60/66 중 최대 예보 시각 기준 궤적). 운영정합(예측시 예보만).
-- 라벨 y = 관측 온셋 지속(온셋: ivt[s+1:s+4]>=THR / near-miss: 0=그날 온셋 아님). omin = 관측 지속창 min.
-- ENV = 각 후보일 oday 의 D-2컷 env-44 (export_d2env.py 와 동일 슬라이싱; c=oday*4-GAP, od=oday-2). D-2컷 불가/일별 NaN 이면 NaN 행.
-- y3 = 3클래스 인코더 라벨: 비온셋 0 / 온셋<24h(omin<THR) 1 / 온셋>=24h(omin>=THR) 2.  (기존 이진 y == (y3==2))
-저장 opdenom_full_{r}.npz {D2, fcv, y, omin, oday, THR, ENV, y3}.  사용: python build_op_denom_full.py
+- 피처 D2(9) = 예보 peak 정렬(target day 리드 48/54/60/66 중 최대 예보 시각 기준 궤적, onset·+6·+12·+18·+24). 운영정합.
+- horizon H(24/30): 지속창 = 온셋+6 … 온셋+(H-6). fcv_H = 예보 min(온셋+6..+(H-6)), omin_H = 관측 min(동일창).
+    y_H = 온셋이고 omin_H>=THR (near-miss=0).  30h 는 온셋+24h 까지 필요 → 예보 리드 90h 안(무손실).
+- 24h(opdenom_full_{r}.npz)엔 인코더용 ENV 44(D-2컷) + y3(3클래스) 동봉. 30h(opdenom_full_{r}_30h.npz)는 코어 필드만.
+저장: opdenom_full_{r}.npz {D2,fcv,y,omin,oday,THR,ENV,y3} / opdenom_full_{r}_30h.npz {D2,fcv,y,omin,oday,THR}.  사용: python build_op_denom_full.py
 """
 import numpy as np, os, pywt, warnings; warnings.filterwarnings("ignore")
 from sklearn.metrics import f1_score
@@ -12,6 +12,7 @@ IVTF = {"ca": "ivt_sf_1980_2023.npy", "uk": "ivt_uk_1980_2023.npy", "chile": "iv
 LEADS = [48, 54, 60, 66, 72, 78, 84, 90]; Li = {L: i for i, L in enumerate(LEADS)}
 GAP = 8   # GAP=8 six-hour steps = 2일 (D-2 컷)
 GRIDF = ["zanom_landfall", "ridge_up", "trough_up", "waveamp_up", "u250_landfall", "u250_up_mean", "merid_grad_lf", "ghgn", "ghgs", "jetlat_local"]
+HORIZONS = [24, 30]   # 지속 임계(시간). 30h = 무손실 최대(온셋+24h 필요 <= 예보 리드 90h)
 
 
 def find(n):
@@ -28,10 +29,10 @@ def peak_feats(f):
     if not day: return None
     onL = max(day, key=lambda x: x[1])[0]                 # 예보 peak 시각(그날 최대 예보 IVT)
     if any((onL + o) not in Li or np.isnan(f[Li[onL + o]]) for o in [6, 12, 18, 24]): return None
-    traj = [float(f[Li[onL + o]]) for o in [0, 6, 12, 18, 24]]
+    traj = [float(f[Li[onL + o]]) for o in [0, 6, 12, 18, 24]]   # onset,+6,+12,+18,+24
     cont = [traj[1], traj[2], traj[3]]
-    feat = traj + [min(cont), float(np.mean(cont)), float(np.std(cont)), traj[4] - traj[0]]
-    return feat, min(cont)
+    feat = traj + [min(cont), float(np.mean(cont)), float(np.std(cont)), traj[4] - traj[0]]   # D2 9개
+    return feat, traj
 
 
 def folds(N, od, Nf=5, emb=64):
@@ -49,7 +50,7 @@ for R in ["ca", "uk", "chile"]:
     ivt = np.load(find(IVTF[R])).astype("float64"); T = len(ivt)
     THR = np.percentile(ivt.reshape(-1, 4).max(1), 85); ar6 = ivt > THR
 
-    # ===== env 소스 로드 (export_d2env.py 와 동일 파일/키) =====
+    # ===== env 소스 로드 (export_d2env.py 와 동일 파일/키) — 24h ENV 동봉용 =====
     CIRCF = "circ_indices.npz" if R == "ca" else f"circ_indices_{R}.npz"
     ci = np.load(find(CIRCF)); jet = ci["jet"].astype("float64"); blk = ci["blocking"].astype("float64")
     ef = np.load(find(f"efeat_{R}.npz")); pmsl = ef["pmsl"].astype("float64"); cloud = ef["cloud"].astype("float64")
@@ -60,7 +61,7 @@ for R in ["ca", "uk", "chile"]:
 
     def env_feats(oday):
         """후보일 oday 의 D-2컷 env-44. export_d2env.py 줄 40-48 과 동일 슬라이싱."""
-        s0 = oday * 4; c = s0 - GAP; od = oday - 2                     # D-2 컷 시점 (관측 2일 전)
+        s0 = oday * 4; c = s0 - GAP; od = oday - 2
         if not (c - 63 >= 0 and od - 64 >= 0 and od >= 1 and od < NG and od < ND
                 and not (np.isnan(jet[od - 1]) or np.isnan(blk[od - 1]))):
             return [np.nan] * 44
@@ -72,45 +73,50 @@ for R in ["ca", "uk", "chile"]:
                  ivt[c - 27:c + 1].mean(), ivt[c - 27:c + 1].std()]
         return d_row + extra + [g[od - 1] for g in GRID] + [ea[c], ep[c]]
 
-    rows = []
+    # ===== 후보 수집 (온셋 + near-miss). 각 행: feat9, traj5, base_idx(6h), oday, env44, is_onset =====
+    cand = []
     z = np.load(tt); S = z["s"].astype(int); IV = z["ivt"][:, 0, :]           # 관측온셋 TT+TF
     for k in range(len(S)):
         f = IV[k]
         if np.isnan(f).all(): continue
         pf = peak_feats(f)
         if pf is None: continue
-        s = S[k]
-        if s + 3 >= T: continue
-        omin = float(ivt[s + 1:s + 4].min()); y = int(omin >= THR)             # 관측 온셋 지속
-        oday = s // 4
-        y3 = 2 if omin >= THR else 1                                           # 온셋: >=24h(2) / <24h(1)
-        rows.append((pf[0], pf[1], y, omin, oday, "onset", env_feats(oday), y3))
+        s = int(S[k])
+        cand.append((pf[0], pf[1], s, s // 4, env_feats(s // 4), True))
     zf = np.load(fa); Sf = zf["s"].astype(int); IVf = zf["ivt"][:, 0, :]       # near-miss FT+FF
     for k in range(len(Sf)):
         f = IVf[k]
         if np.isnan(f).all(): continue
         pf = peak_feats(f)
         if pf is None: continue
-        s0 = (Sf[k] // 4) * 4
-        if s0 + 3 >= T: continue
-        omin = float(ivt[s0 + 1:s0 + 4].min()); y = 0                          # 온셋 아님(관측<THR)
-        oday = s0 // 4
-        y3 = 0                                                                 # 비온셋
-        rows.append((pf[0], pf[1], y, omin, oday, "nm", env_feats(oday), y3))
+        s0 = (int(Sf[k]) // 4) * 4
+        cand.append((pf[0], pf[1], s0, s0 // 4, env_feats(s0 // 4), False))
 
-    src = [r[5] for r in rows]; ys = np.array([r[2] for r in rows])
-    D2 = np.array([r[0] for r in rows]); fcv = np.array([r[1] for r in rows])
-    omin = np.array([r[3] for r in rows]); oday = np.array([r[4] for r in rows])
-    ENV = np.array([r[6] for r in rows], float); y3 = np.array([r[7] for r in rows])
-    o = np.argsort(oday)
-    D2, fcv, ys, omin, oday, ENV, y3 = D2[o], fcv[o], ys[o], omin[o], oday[o], ENV[o], y3[o]
-    np.savez(f"opdenom_full_{R}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3)
-
-    yt = []; pb = []
-    for tr, te in folds(len(ys), oday):
-        if len(tr) < 40 or len(np.unique(ys[tr])) < 2: continue
-        pb.extend((fcv[te] >= THR).astype(int)); yt.extend(ys[te])
-    rf1 = f1_score(np.array(yt), np.array(pb), zero_division=0) if yt else float("nan")
-    nan_env = int(np.isnan(ENV).any(1).sum())
-    print(f"[{R}] 분모 {len(rows)} (온셋 {src.count('onset')} + near-miss {src.count('nm')}) | 지속 {int(ys.sum())} base {ys.mean():.3f} "
-          f"| raw F1={rf1:.3f} | ENV NaN행 {nan_env}/{len(ENV)} | y3 [비온셋 {int((y3==0).sum())} / 온셋<24h {int((y3==1).sum())} / 온셋>=24h {int((y3==2).sum())}] -> opdenom_full_{R}.npz")
+    # ===== horizon 별 라벨/타깃 생성·저장 =====
+    for H in HORIZONS:
+        npts = H // 6                                         # 관측 연속점 수 인덱스 (24h:4, 30h:5)
+        rows = []
+        for feat, traj, base, oday, env, is_on in cand:
+            if base + npts > T: continue                      # 관측 지속창이 시계열 끝 초과 → 제외
+            fcv = float(min(traj[1:npts]))                    # 예보 min(온셋+6..+(H-6))
+            omin = float(ivt[base + 1:base + npts].min())     # 관측 min(동일창)
+            y = int(is_on and omin >= THR)                    # 온셋이고 지속
+            y3 = 0 if not is_on else (2 if omin >= THR else 1)
+            rows.append((feat, fcv, y, omin, oday, env, y3, is_on))
+        D2 = np.array([r[0] for r in rows]); fcv = np.array([r[1] for r in rows])
+        ys = np.array([r[2] for r in rows]); omin = np.array([r[3] for r in rows]); oday = np.array([r[4] for r in rows])
+        ENV = np.array([r[5] for r in rows], float); y3 = np.array([r[6] for r in rows])
+        on = np.array([r[7] for r in rows])
+        o = np.argsort(oday)
+        D2, fcv, ys, omin, oday, ENV, y3, on = D2[o], fcv[o], ys[o], omin[o], oday[o], ENV[o], y3[o], on[o]
+        suf = "" if H == 24 else f"_{H}h"
+        if H == 24:
+            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3)
+        else:
+            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR)
+        yt = []; pb = []
+        for tr, te in folds(len(ys), oday):
+            if len(tr) < 40 or len(np.unique(ys[tr])) < 2: continue
+            pb.extend((fcv[te] >= THR).astype(int)); yt.extend(ys[te])
+        rf1 = f1_score(np.array(yt), np.array(pb), zero_division=0) if yt else float("nan")
+        print(f"[{R} {H}h] 분모 {len(rows)} (온셋 {int(on.sum())} + nm {int((~on).sum())}) | 지속 {int(ys.sum())} base {ys.mean():.3f} | raw F1={rf1:.3f} -> opdenom_full_{R}{suf}.npz")
