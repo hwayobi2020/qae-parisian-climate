@@ -71,7 +71,7 @@ def boot(yt, pa, pb_):
     dd = np.array(dd); return np.percentile(dd, 2.5), np.percentile(dd, 97.5), np.mean(dd > 0)
 
 
-HORIZONS = [("", "24h"), ("_30h", "30h")]   # 지속 임계 24h(opdenom_full_{r}.npz) / 30h(opdenom_full_{r}_30h.npz)
+HORIZONS = [("_18h", "18h"), ("", "24h"), ("_30h", "30h")]   # 지속 임계 18/24/30h (24h=opdenom_full_{r}.npz)
 for suf, hlab in HORIZONS:
     print(f"\n========== 지속 horizon {hlab} ==========")
     REG = {}

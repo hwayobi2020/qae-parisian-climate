@@ -12,7 +12,7 @@ IVTF = {"ca": "ivt_sf_1980_2023.npy", "uk": "ivt_uk_1980_2023.npy", "chile": "iv
 LEADS = [48, 54, 60, 66, 72, 78, 84, 90]; Li = {L: i for i, L in enumerate(LEADS)}
 GAP = 8   # GAP=8 six-hour steps = 2일 (D-2 컷)
 GRIDF = ["zanom_landfall", "ridge_up", "trough_up", "waveamp_up", "u250_landfall", "u250_up_mean", "merid_grad_lf", "ghgn", "ghgs", "jetlat_local"]
-HORIZONS = [24, 30]   # 지속 임계(시간). 30h = 무손실 최대(온셋+24h 필요 <= 예보 리드 90h)
+HORIZONS = [18, 24, 30]   # 지속 임계(시간). 18h=온셋+12h·24h=+18h·30h=+24h 필요 (전부 예보 리드 90h 안, 무손실)
 
 
 def find(n):
