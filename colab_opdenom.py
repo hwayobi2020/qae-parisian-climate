@@ -1,12 +1,13 @@
 # ===== Colab: 0.5THR 완전분모(TT+TF+FT+FF)에서 모델 비교 — 3지역 × 지속 horizon 24h·30h =====
 # 회귀 omin -> THR 판정 -> F1. 입력 opdenom_full_{r}.npz(24h) / opdenom_full_{r}_30h.npz(30h).
-# 준비: opdenom_full_{ca,uk,chile}{,_30h}.npz (git pull). !pip install tabpfn lightgbm pytorch-tabnet -q
+# 준비: opdenom_full_{ca,uk,chile}{,_30h}.npz (git pull). !pip install tabpfn tabicl lightgbm pytorch-tabnet -q
 import numpy as np, torch, torch.nn as nn, os
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
 from lightgbm import LGBMRegressor
 from tabpfn import TabPFNRegressor
+from tabicl import TabICLRegressor   # 완전 오픈 tabular foundation model (키 불필요, HF 자동 다운로드)
 from pytorch_tabnet.tab_model import TabNetRegressor
 DEV = "cuda" if torch.cuda.is_available() else "cpu"; NB = 2000; REGIONS = ["ca", "uk", "chile"]
 
@@ -17,6 +18,8 @@ def p_lgbm(Xtr, ytr, Xte):
     return LGBMRegressor(n_estimators=300, learning_rate=0.05, num_leaves=15, min_child_samples=20, subsample=0.8, verbose=-1).fit(Xtr, ytr).predict(Xte)
 def p_tabpfn(Xtr, ytr, Xte):
     m = TabPFNRegressor(device=DEV); m.fit(np.nan_to_num(Xtr), ytr); return np.asarray(m.predict(np.nan_to_num(Xte)))
+def p_tabicl(Xtr, ytr, Xte):
+    m = TabICLRegressor(); m.fit(np.nan_to_num(Xtr), ytr); return np.asarray(m.predict(np.nan_to_num(Xte)))
 def p_tabnet(Xtr, ytr, Xte):
     sc = StandardScaler().fit(Xtr); bs = max(16, len(Xtr) // 4)
     m = TabNetRegressor(verbose=0, device_name=DEV, seed=0)
@@ -38,7 +41,7 @@ def p_lstm(Xtr, ytr, Xte):
             bi = torch.as_tensor(perm[b:b + 128], device=DEV); opt.zero_grad(); lf(net(xtr[bi]), ytn[bi]).backward(); opt.step()
     net.eval()
     with torch.no_grad(): return net(xte).cpu().numpy() * ys + ym
-MODELS = {"LR": p_lr, "LGBM": p_lgbm, "LSTM": p_lstm, "TabPFN": p_tabpfn, "TabNet": p_tabnet}
+MODELS = {"LR": p_lr, "LGBM": p_lgbm, "LSTM": p_lstm, "TabPFN": p_tabpfn, "TabICL": p_tabicl, "TabNet": p_tabnet}
 
 
 def folds(N, od, Nf=5, emb=64):
