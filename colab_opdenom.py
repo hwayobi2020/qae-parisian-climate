@@ -5,6 +5,7 @@ import numpy as np, torch, torch.nn as nn, os
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
+from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMRegressor
 from tabpfn import TabPFNRegressor
 from tabicl import TabICLRegressor   # 완전 오픈 tabular foundation model (키 불필요, HF 자동 다운로드)
@@ -74,25 +75,28 @@ def boot(yt, pa, pb_):
 # ===== LGBM HP 튜닝: 블록0(항상 train, test 절대 아님)에서만 선택 -> leak-free. 나머지 모델은 튜닝 대상 아님 =====
 LGBM_GRID = [dict(num_leaves=nl, learning_rate=lr, n_estimators=ne, min_child_samples=mc)
              for nl in (15, 31) for lr in (0.03, 0.05) for ne in (200, 400) for mc in (20, 40)]
-def tune_lgbm(regions, suf=""):
-    # 선택지표 = omin 회귀 RMSE(THR 정규화) 최소화. F1 대신 회귀오차인 이유: 블록0 val' 양성이 극소(UK=0개)라
-    #   F1 은 불안정/정의불가. RMSE 는 양성 불필요 -> 3지역 다 기여, 안정적. 풀링 없음(지역별 정규화 후 평균).
+def tune_lgbm(regions, suf="", n_splits=3):
+    # 블록0(항상 train, test 절대 아님) '전체'를 시간순 CV(expanding TimeSeriesSplit)로 사용 -> leak-free.
+    # 선택지표 = omin 회귀 RMSE(THR 정규화). F1 대신 회귀오차인 이유: 블록0 양성이 극소(UK)라 F1 불안정/정의불가.
+    #   블록0 전체 활용 + 여러 시간순 스플릿 평균 -> 단일 슬라이스 운(예: 특정 슬라이스 양성 0)에 안 흔들림. 풀링 없음(정규화 후 평균).
     packs = []
     for R in regions:
-        d = np.load(f"opdenom_full_{R}{suf}.npz"); D2 = d["D2"]; omin = d["omin"]; THR = float(d["THR"]); N = len(y := d["y"])
-        f = N // 6; cut = int(f * 0.7)                              # 블록0을 시간순 70/30 (tr'/val'). test블록(1~5) 미사용
-        packs.append((D2[:cut], omin[:cut], D2[cut:f], omin[cut:f], THR))
+        d = np.load(f"opdenom_full_{R}{suf}.npz"); D2 = d["D2"]; omin = d["omin"]; THR = float(d["THR"]); N = len(d["y"])
+        f = N // 6
+        packs.append((D2[:f], omin[:f], THR))                      # 블록0 전체
+    tscv = TimeSeriesSplit(n_splits=n_splits)
     best = None; best_s = 1e18
     for hp in LGBM_GRID:
-        es = []
-        for Xtr, otr, Xval, oval, THR in packs:
-            m = LGBMRegressor(subsample=0.8, verbose=-1, **hp).fit(Xtr, otr)
-            es.append(float(np.sqrt(np.mean((m.predict(Xval) - oval) ** 2)) / THR))   # THR 정규화 RMSE
+        es = []                                                    # 지역 × 시간순 스플릿별 정규화 RMSE
+        for X0, o0, THR in packs:
+            for tr, val in tscv.split(X0):
+                m = LGBMRegressor(subsample=0.8, verbose=-1, **hp).fit(X0[tr], o0[tr])
+                es.append(float(np.sqrt(np.mean((m.predict(X0[val]) - o0[val]) ** 2)) / THR))
         s = float(np.mean(es))
         if s < best_s: best_s = s; best = hp
     return best, best_s
-LGBM_HP, _lgbm_dev = tune_lgbm(REGIONS)                             # 24h 블록0으로 HP 고정 -> 전 horizon 공통 적용
-print(f"[LGBM HP: 블록0 dev 튜닝(leak-free, 지표=정규화RMSE)] {LGBM_HP}  지역평균 devRMSE/THR={_lgbm_dev:.3f}\n")
+LGBM_HP, _lgbm_dev = tune_lgbm(REGIONS)                             # 24h 블록0 시간순 CV로 HP 고정 -> 전 horizon 공통 적용
+print(f"[LGBM HP: 블록0 시간순CV 튜닝(leak-free, 지표=정규화RMSE)] {LGBM_HP}  지역·스플릿평균 devRMSE/THR={_lgbm_dev:.3f}\n")
 
 HORIZONS = [("_18h", "18h"), ("", "24h"), ("_30h", "30h")]   # 지속 임계 18/24/30h (24h=opdenom_full_{r}.npz)
 for suf, hlab in HORIZONS:
