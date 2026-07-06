@@ -15,7 +15,7 @@ DEV = "cuda" if torch.cuda.is_available() else "cpu"; NB = 2000; REGIONS = ["ca"
 def p_lr(Xtr, ytr, Xte):
     sc = StandardScaler().fit(Xtr); return LinearRegression().fit(sc.transform(Xtr), ytr).predict(sc.transform(Xte))
 def p_lgbm(Xtr, ytr, Xte):
-    return LGBMRegressor(n_estimators=300, learning_rate=0.05, num_leaves=15, min_child_samples=20, subsample=0.8, verbose=-1).fit(Xtr, ytr).predict(Xte)
+    return LGBMRegressor(subsample=0.8, verbose=-1, **LGBM_HP).fit(Xtr, ytr).predict(Xte)   # LGBM_HP = 블록0 튜닝값(아래)
 def p_tabpfn(Xtr, ytr, Xte):
     m = TabPFNRegressor(device=DEV); m.fit(np.nan_to_num(Xtr), ytr); return np.asarray(m.predict(np.nan_to_num(Xte)))
 def p_tabicl(Xtr, ytr, Xte):
@@ -70,6 +70,29 @@ def boot(yt, pa, pb_):
         if len(np.unique(yt[ix])) > 1: dd.append(f1_score(yt[ix], pa[ix], zero_division=0) - f1_score(yt[ix], pb_[ix], zero_division=0))
     dd = np.array(dd); return np.percentile(dd, 2.5), np.percentile(dd, 97.5), np.mean(dd > 0)
 
+
+# ===== LGBM HP 튜닝: 블록0(항상 train, test 절대 아님)에서만 선택 -> leak-free. 나머지 모델은 튜닝 대상 아님 =====
+LGBM_GRID = [dict(num_leaves=nl, learning_rate=lr, n_estimators=ne, min_child_samples=mc)
+             for nl in (15, 31) for lr in (0.03, 0.05) for ne in (200, 400) for mc in (20, 40)]
+def tune_lgbm(regions, suf=""):
+    # 선택지표 = omin 회귀 RMSE(THR 정규화) 최소화. F1 대신 회귀오차인 이유: 블록0 val' 양성이 극소(UK=0개)라
+    #   F1 은 불안정/정의불가. RMSE 는 양성 불필요 -> 3지역 다 기여, 안정적. 풀링 없음(지역별 정규화 후 평균).
+    packs = []
+    for R in regions:
+        d = np.load(f"opdenom_full_{R}{suf}.npz"); D2 = d["D2"]; omin = d["omin"]; THR = float(d["THR"]); N = len(y := d["y"])
+        f = N // 6; cut = int(f * 0.7)                              # 블록0을 시간순 70/30 (tr'/val'). test블록(1~5) 미사용
+        packs.append((D2[:cut], omin[:cut], D2[cut:f], omin[cut:f], THR))
+    best = None; best_s = 1e18
+    for hp in LGBM_GRID:
+        es = []
+        for Xtr, otr, Xval, oval, THR in packs:
+            m = LGBMRegressor(subsample=0.8, verbose=-1, **hp).fit(Xtr, otr)
+            es.append(float(np.sqrt(np.mean((m.predict(Xval) - oval) ** 2)) / THR))   # THR 정규화 RMSE
+        s = float(np.mean(es))
+        if s < best_s: best_s = s; best = hp
+    return best, best_s
+LGBM_HP, _lgbm_dev = tune_lgbm(REGIONS)                             # 24h 블록0으로 HP 고정 -> 전 horizon 공통 적용
+print(f"[LGBM HP: 블록0 dev 튜닝(leak-free, 지표=정규화RMSE)] {LGBM_HP}  지역평균 devRMSE/THR={_lgbm_dev:.3f}\n")
 
 HORIZONS = [("_18h", "18h"), ("", "24h"), ("_30h", "30h")]   # 지속 임계 18/24/30h (24h=opdenom_full_{r}.npz)
 for suf, hlab in HORIZONS:
