@@ -4,7 +4,8 @@
 - horizon H(24/30): 지속창 = 온셋+6 … 온셋+(H-6). fcv_H = 예보 min(온셋+6..+(H-6)), omin_H = 관측 min(동일창).
     y_H = 온셋이고 omin_H>=THR (near-miss=0).  30h 는 온셋+24h 까지 필요 → 예보 리드 90h 안(무손실).
 - 24h(opdenom_full_{r}.npz)엔 인코더용 ENV 44(D-2컷) + y3(3클래스) 동봉. 30h(opdenom_full_{r}_30h.npz)는 코어 필드만.
-저장: opdenom_full_{r}.npz {D2,fcv,y,omin,oday,THR,ENV,y3} / opdenom_full_{r}_30h.npz {D2,fcv,y,omin,oday,THR}.  사용: python build_op_denom_full.py
+- D8(8) = 8-고정 리드(48~90h) 원시 예보 IVT (peak정렬 vs 고정리드 ablation용). fcv(raw 기준선)는 계속 peak정렬.
+저장: opdenom_full_{r}.npz {D2,fcv,y,omin,oday,THR,ENV,y3,D8} / opdenom_full_{r}_{18,30}h.npz {D2,fcv,y,omin,oday,THR,D8}.  사용: python build_op_denom_full.py
 """
 import numpy as np, os, pywt, warnings; warnings.filterwarnings("ignore")
 from sklearn.metrics import f1_score
@@ -73,7 +74,7 @@ for R in ["ca", "uk", "chile"]:
                  ivt[c - 27:c + 1].mean(), ivt[c - 27:c + 1].std()]
         return d_row + extra + [g[od - 1] for g in GRID] + [ea[c], ep[c]]
 
-    # ===== 후보 수집 (온셋 + near-miss). 각 행: feat9, traj5, base_idx(6h), oday, env44, is_onset =====
+    # ===== 후보 수집 (온셋 + near-miss). 각 행: feat9(peak정렬), traj5, f8(8고정리드 원시), base_idx(6h), oday, env44, is_onset =====
     cand = []
     z = np.load(tt); S = z["s"].astype(int); IV = z["ivt"][:, 0, :]           # 관측온셋 TT+TF
     for k in range(len(S)):
@@ -82,7 +83,7 @@ for R in ["ca", "uk", "chile"]:
         pf = peak_feats(f)
         if pf is None: continue
         s = int(S[k])
-        cand.append((pf[0], pf[1], s, s // 4, env_feats(s // 4), True))
+        cand.append((pf[0], pf[1], np.asarray(f, float), s, s // 4, env_feats(s // 4), True))
     zf = np.load(fa); Sf = zf["s"].astype(int); IVf = zf["ivt"][:, 0, :]       # near-miss FT+FF
     for k in range(len(Sf)):
         f = IVf[k]
@@ -90,30 +91,30 @@ for R in ["ca", "uk", "chile"]:
         pf = peak_feats(f)
         if pf is None: continue
         s0 = (int(Sf[k]) // 4) * 4
-        cand.append((pf[0], pf[1], s0, s0 // 4, env_feats(s0 // 4), False))
+        cand.append((pf[0], pf[1], np.asarray(f, float), s0, s0 // 4, env_feats(s0 // 4), False))
 
     # ===== horizon 별 라벨/타깃 생성·저장 =====
     for H in HORIZONS:
         npts = H // 6                                         # 관측 연속점 수 인덱스 (24h:4, 30h:5)
         rows = []
-        for feat, traj, base, oday, env, is_on in cand:
+        for feat, traj, f8, base, oday, env, is_on in cand:
             if base + npts > T: continue                      # 관측 지속창이 시계열 끝 초과 → 제외
-            fcv = float(min(traj[1:npts]))                    # 예보 min(온셋+6..+(H-6))
+            fcv = float(min(traj[1:npts]))                    # 예보 min(온셋+6..+(H-6)) — peak정렬 유지(raw 기준선)
             omin = float(ivt[base + 1:base + npts].min())     # 관측 min(동일창)
             y = int(is_on and omin >= THR)                    # 온셋이고 지속
             y3 = 0 if not is_on else (2 if omin >= THR else 1)
-            rows.append((feat, fcv, y, omin, oday, env, y3, is_on))
+            rows.append((feat, fcv, y, omin, oday, env, y3, is_on, f8))
         D2 = np.array([r[0] for r in rows]); fcv = np.array([r[1] for r in rows])
         ys = np.array([r[2] for r in rows]); omin = np.array([r[3] for r in rows]); oday = np.array([r[4] for r in rows])
         ENV = np.array([r[5] for r in rows], float); y3 = np.array([r[6] for r in rows])
-        on = np.array([r[7] for r in rows])
+        on = np.array([r[7] for r in rows]); D8 = np.array([r[8] for r in rows], float)   # 8-고정 리드 원시 예보 IVT (정렬비교용)
         o = np.argsort(oday)
-        D2, fcv, ys, omin, oday, ENV, y3, on = D2[o], fcv[o], ys[o], omin[o], oday[o], ENV[o], y3[o], on[o]
+        D2, fcv, ys, omin, oday, ENV, y3, on, D8 = D2[o], fcv[o], ys[o], omin[o], oday[o], ENV[o], y3[o], on[o], D8[o]
         suf = "" if H == 24 else f"_{H}h"
         if H == 24:
-            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3)
+            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3, D8=D8)
         else:
-            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR)
+            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, D8=D8)
         yt = []; pb = []
         for tr, te in folds(len(ys), oday):
             if len(tr) < 40 or len(np.unique(ys[tr])) < 2: continue
