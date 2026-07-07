@@ -1,7 +1,7 @@
 # ===== Colab: 피처 정렬 ablation 전체판 — peak정렬 vs 고정리드 × 6모델 (+24h: env 인코더·웨이블릿 재검증) =====
 # 질문 1: 예보 peak 정렬(A)이 고정 리드(B·C)보다 나은가 — 6모델 전체에서 (기존 TabPFN·LGBM 2모델 -> 6모델 확장).
-# 질문 2: 고정리드 base(C) 위에서 관측 env(인코더8 / IVT웨이블릿6 직접)가 이득 있나
-#         — "env는 예보에 흡수" 폐기결론이 peak정렬(D2) 기준으로 잰 것이라 고정리드 base 로 재검증 (ENV·y3 는 24h npz 에만 있어 24h 만).
+# 질문 2: 고정리드 base(C) 위에서 관측 env(인코더8 / IVT웨이블릿6 직접)가 이득 있나 — 전 horizon(18/24/30h).
+#         "env는 예보에 흡수" 폐기결론이 peak정렬(D2) 기준으로 잰 것이라 고정리드 base 로 재검증.
 # 피처셋: A_peak9 = D2(peak정렬 9) / B_fix8 = D8(리드48~90 고정 8) / C_fix8+요약 = D8 + D2 요약4(min/mean/std/기울기)
 #         D_C+인코더8 = C + env44->MLP 8차원(3클래스 헤드, 폴드별 train만 학습) / E_C+웨이블릿6 = C + IVT 16일 웨이블릿 직접
 # raw 기준선 = fcv(peak정렬) 고정. 회귀 -> omin 예측 -> THR 판정 -> F1. 3지역 × 18/24/30h + 통합(지역평균 ΔF1 부트스트랩).
@@ -128,7 +128,7 @@ for suf, hlab in HORIZONS:
         FEAT = {"A_peak9": (5, [(D2[tr], D2[te]) for tr, te in FL]),
                 "B_fix8": (8, [(D8[tr], D8[te]) for tr, te in FL]),
                 "C_fix8+요약": (8, [(C[tr], C[te]) for tr, te in FL])}
-        if suf == "" and "ENV" in d.files and "y3" in d.files:  # env 재검증은 ENV·y3 가 있는 24h 만
+        if "ENV" in d.files and "y3" in d.files:                # env 재검증 세트 — 전 horizon (npz 에 ENV·y3 동봉)
             ENV = d["ENV"]; y3 = d["y3"].astype(int)
             dl = []
             for tr, te in FL:                                   # 인코더는 폴드당 1회만 학습 -> 6모델이 같은 rep 공유

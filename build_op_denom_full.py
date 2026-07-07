@@ -3,9 +3,9 @@
 - 피처 D2(9) = 예보 peak 정렬(target day 리드 48/54/60/66 중 최대 예보 시각 기준 궤적, onset·+6·+12·+18·+24). 운영정합.
 - horizon H(24/30): 지속창 = 온셋+6 … 온셋+(H-6). fcv_H = 예보 min(온셋+6..+(H-6)), omin_H = 관측 min(동일창).
     y_H = 온셋이고 omin_H>=THR (near-miss=0).  30h 는 온셋+24h 까지 필요 → 예보 리드 90h 안(무손실).
-- 24h(opdenom_full_{r}.npz)엔 인코더용 ENV 44(D-2컷) + y3(3클래스) 동봉. 30h(opdenom_full_{r}_30h.npz)는 코어 필드만.
+- 인코더용 ENV 44(D-2컷, horizon 무관) + y3(3클래스, 라벨은 horizon별 omin 기준) 을 전 horizon npz 에 동봉.
 - D8(8) = 8-고정 리드(48~90h) 원시 예보 IVT (peak정렬 vs 고정리드 ablation용). fcv(raw 기준선)는 계속 peak정렬.
-저장: opdenom_full_{r}.npz {D2,fcv,y,omin,oday,THR,ENV,y3,D8} / opdenom_full_{r}_{18,30}h.npz {D2,fcv,y,omin,oday,THR,D8}.  사용: python build_op_denom_full.py
+저장: opdenom_full_{r}{,_18h,_30h}.npz {D2,fcv,y,omin,oday,THR,ENV,y3,D8}.  사용: python build_op_denom_full.py
 """
 import numpy as np, os, pywt, warnings; warnings.filterwarnings("ignore")
 from sklearn.metrics import f1_score
@@ -111,10 +111,7 @@ for R in ["ca", "uk", "chile"]:
         o = np.argsort(oday)
         D2, fcv, ys, omin, oday, ENV, y3, on, D8 = D2[o], fcv[o], ys[o], omin[o], oday[o], ENV[o], y3[o], on[o], D8[o]
         suf = "" if H == 24 else f"_{H}h"
-        if H == 24:
-            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3, D8=D8)
-        else:
-            np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, D8=D8)
+        np.savez(f"opdenom_full_{R}{suf}.npz", D2=D2, fcv=fcv, y=ys, omin=omin, oday=oday, THR=THR, ENV=ENV, y3=y3, D8=D8)   # ENV 44·y3(3클래스, horizon별 라벨) 전 horizon 동봉
         yt = []; pb = []
         for tr, te in folds(len(ys), oday):
             if len(tr) < 40 or len(np.unique(ys[tr])) < 2: continue
