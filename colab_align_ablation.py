@@ -169,3 +169,18 @@ for suf, hlab in HORIZONS:
             md = np.array(md)
             obs = np.mean([f1_score(REG[R]["_yt"], REG[R][sn], zero_division=0) - f1_score(REG[R]["_yt"], REG[R]["_raw"], zero_division=0) for R in REG])
             print(f"    [통합 {sn}] 평균Δ{obs:+.3f} CI[{np.percentile(md,2.5):+.3f},{np.percentile(md,97.5):+.3f}] P{np.mean(md>0):.3f}")
+
+        # ===== B vs C 직접 비교 (메인 피처 결정용): ΔF1 = C − B, 같은 test 표본 paired 부트스트랩 =====
+        if "B_fix8" in SETNAMES and "C_fix8+요약" in SETNAMES:
+            rng = np.random.default_rng(0); md = []
+            for _ in range(NB):
+                ds = []
+                for R in REG:
+                    yt0 = REG[R]["_yt"]; pB = REG[R]["B_fix8"]; pC = REG[R]["C_fix8+요약"]; ix = rng.integers(0, len(yt0), len(yt0))
+                    if len(np.unique(yt0[ix])) < 2: ds = None; break
+                    ds.append(f1_score(yt0[ix], pC[ix], zero_division=0) - f1_score(yt0[ix], pB[ix], zero_division=0))
+                if ds is not None: md.append(np.mean(ds))
+            md = np.array(md)
+            pers = " | ".join(f"{R} Δ{f1_score(REG[R]['_yt'], REG[R]['C_fix8+요약'], zero_division=0) - f1_score(REG[R]['_yt'], REG[R]['B_fix8'], zero_division=0):+.3f} P{boot_p(REG[R]['_yt'], REG[R]['C_fix8+요약'], REG[R]['B_fix8']):.2f}" for R in REG)
+            obs = np.mean([f1_score(REG[R]["_yt"], REG[R]["C_fix8+요약"], zero_division=0) - f1_score(REG[R]["_yt"], REG[R]["B_fix8"], zero_division=0) for R in REG])
+            print(f"    [C−B 직접] {pers} | 통합 Δ{obs:+.3f} CI[{np.percentile(md,2.5):+.3f},{np.percentile(md,97.5):+.3f}] P{np.mean(md>0):.3f}")
