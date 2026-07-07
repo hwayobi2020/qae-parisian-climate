@@ -33,7 +33,12 @@
   1~5. IVT @ onL·onL+6·+12·+18·+24h
   6~8. 연속 3점(onL+6/+12/+18)의 min(=fcv) / mean / std(시간축)
   9. 기울기 = (onL+24) − onL
-- **2026-07-07 진행중 — 이 peak정렬 9개(D2)는 ablation에서 열등 판정.** 고정리드8(D8, 리드 48~90h) 및 고정8+요약(C=12) > peak9(D2): 18h TabPFN CA ΔF1 +0.074→+0.117 / UK +0.029→+0.058(P0.94), 로컬 LGBM 24h 전 지역 동일. **Chile·24h·30h 확정 시 헤드라인 피처를 C로 교체하고 §8 재산출 예정**(raw fcv는 peak정렬 유지). 셀=`colab_align_ablation.py`.
+- **★ 2026-07-07 — 메인 모델 피처 = C 로 확정. 위 peak정렬 9개(D2)는 이전 버전(열등).** ablation으로 결정:
+  - **A_peak9 = D2**: 위 9개(예보 peak onL 정렬). = 이전 버전.
+  - **B_fix8 = D8**: 예보 IVT를 **정렬 없이 고정 리드 8점**(48·54·60·66·72·78·84·90h) 그대로. onL을 안 찾고 절대 리드값을 씀 → 리드가 샘플마다 안 바뀜.
+  - **★ C = D8(8) + 요약4**: D8 8개 + D2의 요약(min/mean/std/기울기) 4개 = **12개. 이게 메인.**
+  - 근거 **C ≳ B > A** (전 지역 일관): 18h TabPFN CA ΔF1 +0.074→+0.117 / UK +0.029→+0.058(P0.94), 로컬 LGBM 24h도 동일 순서. raw fcv는 peak정렬 유지.
+  - **⚠️ §8 등 이 문서의 헤드라인 결과는 전부 아직 D2(peak9) 기준 → C로 재산출 필요.** TabPFN Chile·24h·30h ablation 확인도 완료 대기. 데이터=`build_op_denom_full.py`가 D8 동봉, 셀=`colab_align_ablation.py`.
 - 모델: **TabPFN 회귀(Regressor)** (사전학습된 트랜스포머, in-context fit — 그래디언트 학습 없음).
 - 출력: **연속구간 관측 min IVT를 수치로 예측** (raw fcv와 같은 IVT 단위·의미). 회귀 타깃 = 관측 min IVT(온셋+6/12/18h).
 - 판정: **예측 min IVT ≥ 250(THR) → 지속(발생), < 250 → 미지속.** raw와 완전히 같은 임계·규칙(확률 0.5 없음).
