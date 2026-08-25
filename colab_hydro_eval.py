@@ -61,6 +61,16 @@ for R in ["ca", "chile"]:
     print("  --- 온셋일 강수 (mm) ---")
     for nm, m in [("둘 다 판정", both), ("회수(gain)", gain), ("손실(loss)", loss)]:
         print(f"    {nm:14s} {desc(P24[m & ~np.isnan(P24)], ' mm')}")
+    pg = P24[gain & ~np.isnan(P24)]; pl = P24[loss & ~np.isnan(P24)]
+    if len(pg) and len(pl):
+        u, pv = stats.mannwhitneyu(pg, pl, alternative="two-sided")
+        # 중앙값 차의 부트스트랩 95% CI (2000회)
+        rs = np.random.RandomState(0)
+        bs = [np.median(rs.choice(pg, len(pg), True)) - np.median(rs.choice(pl, len(pl), True))
+              for _ in range(2000)]
+        lo, hi = np.percentile(bs, [2.5, 97.5])
+        print(f"    회수 vs 손실  중앙값차 {np.median(pg)-np.median(pl):+.2f} mm "
+              f"[95% CI {lo:+.2f}, {hi:+.2f}]  Mann-Whitney p={pv:.4f}")
 
     # ---- 유량 (캘리포니아만)
     if R != "ca":
