@@ -41,7 +41,8 @@ for R in ["ca", "chile"]:
     z = np.load(f"pred_dump_{R}_24h.npz")
     y = z["y"].astype(bool); raw = z["raw"].astype(bool); tab = z["tabpfn"].astype(bool)
     oday = z["oday"]
-    dates = np.load(f"data/raw/times_{IVTF[R]}_1980_2023.npy")[::4][oday].astype("datetime64[D]")
+    # IVT 계열은 1980-01-01 00Z 시작 6시간 간격 -> oday 일차 = 1980-01-01 + oday일 (로컬 대조 확인함)
+    dates = np.datetime64("1980-01-01") + oday.astype("timedelta64[D]")
 
     gain = (~raw & tab & y); loss = (raw & ~tab & y)
     both = (raw & tab & y); fp_raw = (raw & ~y); fp_tab = (tab & ~y)
