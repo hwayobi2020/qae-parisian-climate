@@ -199,3 +199,42 @@ for R in ["ca", "chile"]:
       f"(유역 4개 -> 부호검정 최소 p=0.125, 유의 불가)")
     P(f"      회수가 '둘 다 판정'보다 낮은 유역 "
       f"{int((M[:,1] < M[:,0]).sum())}/4")
+
+# ══════════════ (D) 원예보 대 모델 — 잡아낸 지속 이벤트 전체 비교 ══════════════
+P("")
+P("=" * 100)
+P("(D) 원예보가 잡은 지속 이벤트 vs 모델이 잡은 지속 이벤트 (겹치는 38건 포함, 전체 집합)")
+P("=" * 100)
+for R in ["ca", "chile"]:
+    if not os.path.exists(f"pred_dump_{R}_24h.npz"):
+        P(f"  [{R}] pred_dump 없음 -> 건너뜀")
+        continue
+    z = np.load(f"pred_dump_{R}_24h.npz")
+    y = z["y"].astype(bool); raw = z["raw"].astype(bool); tab = z["tabpfn"].astype(bool)
+    dates = np.datetime64("1980-01-01") + z["oday"].astype(int).astype("timedelta64[D]")
+    dmap, daily = load_precip(R)
+    idx = np.array([dmap.get(d, -1) for d in dates])
+    nxt = np.array([dmap.get(d + np.timedelta64(1, "D"), -1) for d in dates])
+    P24 = np.where(idx >= 0, daily[np.clip(idx, 0, len(daily) - 1)], np.nan)
+    P48 = P24 + np.where(nxt >= 0, daily[np.clip(nxt, 0, len(daily) - 1)], np.nan)
+    A = y & raw          # 원예보가 잡은 지속
+    B = y & tab          # 모델이 잡은 지속
+    P("")
+    P(f"  ####### [{R}] 실제 지속 {int(y.sum())}건 중 원예보 {int(A.sum())}건 / 모델 {int(B.sum())}건")
+    for lab, arr in [("P24", P24), ("P48", P48)]:
+        tot = np.nansum(arr[y])
+        a, b = np.nansum(arr[A]), np.nansum(arr[B])
+        P(f"    {lab} 총강수(mm)  실제지속 전체 {tot:8.1f} | 원예보 {a:8.1f} ({100*a/tot:4.1f}%) "
+          f"| 모델 {b:8.1f} ({100*b/tot:4.1f}%)  회수분 {b-a:+8.1f} ({100*(b-a)/tot:+.1f}%p)")
+        P(f"          중앙값  원예보 {np.nanmedian(arr[A]):6.2f} | 모델 {np.nanmedian(arr[B]):6.2f}")
+    if R != "ca":
+        continue
+    P("    --- Q3 첨두유량 (cfs) ---")
+    for sid, (nm, dist) in GAUGE.items():
+        Q = load_q(sid)
+        q3 = np.array([max([Q.get(d + np.timedelta64(k, "D"), np.nan) for k in (0, 1, 2)])
+                       for d in dates])
+        ta = np.nansum(q3[y]); qa, qb = np.nansum(q3[A]), np.nansum(q3[B])
+        P(f"      {nm:24s} 합계 실제지속 {ta:9.0f} | 원예보 {qa:9.0f} ({100*qa/ta:4.1f}%) "
+          f"| 모델 {qb:9.0f} ({100*qb/ta:4.1f}%)   중앙 {np.nanmedian(q3[A]):7.1f} -> "
+          f"{np.nanmedian(q3[B]):7.1f}")
