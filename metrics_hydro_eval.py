@@ -7,7 +7,7 @@
 표본은 전부 전수(달력일 창)로 통일한다 — 온셋시각 정렬판은 군별 탈락률이 달라(캘리포니아
 미지속 51.4% 대 지속 74.5%) 두 군 비교에 쓸 수 없다.
 
-출력: runlog/metrics_hydro_2026-08-28.txt
+출력: 표준출력
 실행: python metrics_hydro_eval.py
 """
 import os
