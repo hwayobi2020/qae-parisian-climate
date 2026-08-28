@@ -238,3 +238,48 @@ for R in ["ca", "chile"]:
         P(f"      {nm:24s} 합계 실제지속 {ta:9.0f} | 원예보 {qa:9.0f} ({100*qa/ta:4.1f}%) "
           f"| 모델 {qb:9.0f} ({100*qb/ta:4.1f}%)   중앙 {np.nanmedian(q3[A]):7.1f} -> "
           f"{np.nanmedian(q3[B]):7.1f}")
+
+# ══════════ (E) 판정 이동의 유의성 + 오경보 비용 (표 8 보정) ══════════
+P("")
+P("=" * 100)
+P("(E) McNemar 정확검정(회수 대 손실) + 오경보일에 실린 강수 + 경보예산 동일화")
+P("=" * 100)
+from scipy.stats import binomtest
+for R in ["ca", "chile"]:
+    if not os.path.exists(f"pred_dump_{R}_24h.npz"):
+        P(f"  [{R}] pred_dump 없음 -> 건너뜀")
+        continue
+    z = np.load(f"pred_dump_{R}_24h.npz")
+    y = z["y"].astype(bool); raw = z["raw"].astype(bool); tab = z["tabpfn"].astype(bool)
+    dates = np.datetime64("1980-01-01") + z["oday"].astype(int).astype("timedelta64[D]")
+    gain = int((~raw & tab & y).sum()); loss = int((raw & ~tab & y).sum())
+    mc = binomtest(gain, gain + loss, 0.5)
+    P("")
+    P(f"  ####### [{R}] 회수 {gain} / 손실 {loss}  McNemar 정확검정 p={mc.pvalue:.4f}")
+    sr, st = scores(y, raw), scores(y, tab)
+    P(f"    판정 건수 {sr['TP']+sr['FP']} -> {st['TP']+st['FP']}   "
+      f"FAR {sr['FAR']:.3f} -> {st['FAR']:.3f}")
+    dmap, daily = load_precip(R)
+    idx = np.array([dmap.get(d, -1) for d in dates])
+    nxt = np.array([dmap.get(d + np.timedelta64(1, "D"), -1) for d in dates])
+    P24 = np.where(idx >= 0, daily[np.clip(idx, 0, len(daily) - 1)], np.nan)
+    P48 = P24 + np.where(nxt >= 0, daily[np.clip(nxt, 0, len(daily) - 1)], np.nan)
+    fr, ft = raw & ~y, tab & ~y                      # 오경보
+    for lab, arr in [("P24", P24), ("P48", P48)]:
+        P(f"    {lab} 오경보일 총강수(mm)  원예보 {np.nansum(arr[fr]):7.1f} ({int(fr.sum())}건, "
+          f"중앙 {np.nanmedian(arr[fr]):5.2f}) | 모델 {np.nansum(arr[ft]):7.1f} "
+          f"({int(ft.sum())}건, 중앙 {np.nanmedian(arr[ft]):5.2f})")
+    # 경보예산 동일화: 모델을 원예보와 같은 판정 건수로 잘랐을 때 (예측 최소IVT 상위 k)
+    if "pred_min" in z.files:
+        k = sr["TP"] + sr["FP"]
+        thr_k = np.sort(z["pred_min"])[::-1][k - 1]
+        cut = z["pred_min"] >= thr_k
+        sc = scores(y, cut)
+        P(f"    경보예산 동일화(k={k})  모델 POD={sc['POD']:.3f} FAR={sc['FAR']:.3f} "
+          f"F1={sc['F1']:.3f}  (원예보 POD={sr['POD']:.3f} FAR={sr['FAR']:.3f} F1={sr['F1']:.3f})")
+        for lab, arr in [("P24", P24), ("P48", P48)]:
+            tot = np.nansum(arr[y])
+            P(f"      {lab} 회수율  원예보 {100*np.nansum(arr[y&raw])/tot:4.1f}% | "
+              f"동일예산 모델 {100*np.nansum(arr[y&cut])/tot:4.1f}%")
+    else:
+        P("    경보예산 동일화: pred_dump 에 pred_min 없음 -> colab_dump_pred.py 에 추가 필요")
