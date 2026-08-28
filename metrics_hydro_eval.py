@@ -14,14 +14,10 @@ import os
 import numpy as np
 from scipy import stats
 
-os.makedirs("runlog", exist_ok=True)
-OUT = open(os.path.join("runlog", "metrics_hydro_2026-08-28.txt"), "w", encoding="utf-8")
 
 
 def P(*a):
-    s = " ".join(str(x) for x in a)
-    OUT.write(s + "\n")
-    print(s)
+    print(" ".join(str(x) for x in a))
 
 
 GAUGE = {"11181040": ("San Lorenzo C", 32.5), "11460400": ("Lagunitas C", 37.1),
@@ -203,6 +199,3 @@ for R in ["ca", "chile"]:
       f"(유역 4개 -> 부호검정 최소 p=0.125, 유의 불가)")
     P(f"      회수가 '둘 다 판정'보다 낮은 유역 "
       f"{int((M[:,1] < M[:,0]).sum())}/4")
-
-OUT.close()
-print("\nsaved runlog/metrics_hydro_2026-08-28.txt")
