@@ -14,6 +14,7 @@ import os
 import numpy as np
 from scipy import stats
 
+os.makedirs("runlog", exist_ok=True)
 OUT = open(os.path.join("runlog", "metrics_hydro_2026-08-28.txt"), "w", encoding="utf-8")
 
 
