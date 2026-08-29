@@ -323,9 +323,9 @@ for R in ["ca", "chile"]:
                    ("손실 (원 예보만 판정)", loss), ("둘 다 미판정", miss),
                    ("실제 지속 전체", y)]:
         a, b = P24[m], P48[m]
-        P("  %-24s %6d | %10.2f (%6.2f)      | %10.2f (%6.2f)"
-          % (lab, int(m.sum()), np.nanmedian(a), np.nanmean(a),
-             np.nanmedian(b), np.nanmean(b)))
+        P("  %-24s %6d | %10.2f (%6.2f) 총 %7.1f | %10.2f (%6.2f) 총 %7.1f"
+          % (lab, int(m.sum()), np.nanmedian(a), np.nanmean(a), np.nansum(a),
+             np.nanmedian(b), np.nanmean(b), np.nansum(b)))
     fr, ft = int((raw & ~y).sum()), int((tab & ~y).sum())
     P("  %-24s %6s | %-24s | %-24s" % ("오경보 (원예보 → 모델)", f"{fr} → {ft}", "—", "—"))
     P("  " + "-" * 84)
