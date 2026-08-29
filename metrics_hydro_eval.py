@@ -318,8 +318,10 @@ for R in ["ca", "chile"]:
     P("  %-24s %6s | %-24s | %-24s" % ("구분", "건수", "온셋일 강수 중앙(평균) mm",
                                         "이틀 강수 중앙(평균) mm"))
     P("  " + "-" * 84)
+    miss = (~raw & ~tab & y)
     for lab, m in [("둘 다 판정", both), ("회수 (모델만 판정)", gain),
-                   ("손실 (원 예보만 판정)", loss)]:
+                   ("손실 (원 예보만 판정)", loss), ("둘 다 미판정", miss),
+                   ("실제 지속 전체", y)]:
         a, b = P24[m], P48[m]
         P("  %-24s %6d | %10.2f (%6.2f)      | %10.2f (%6.2f)"
           % (lab, int(m.sum()), np.nanmedian(a), np.nanmean(a),
