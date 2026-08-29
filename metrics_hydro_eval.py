@@ -283,3 +283,106 @@ for R in ["ca", "chile"]:
               f"동일예산 모델 {100*np.nansum(arr[y&cut])/tot:4.1f}%")
     else:
         P("    경보예산 동일화: pred_dump 에 pred_min 없음 -> colab_dump_pred.py 에 추가 필요")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# (F) 논문 표 형태 출력 — 그대로 원고에 옮길 수 있는 형식
+# ══════════════════════════════════════════════════════════════════════
+P("")
+P("=" * 100)
+P("(F) 논문 표 초안 — 아래를 그대로 원고에 옮긴다")
+P("=" * 100)
+
+for R in ["ca", "chile"]:
+    dz = f"pred_dump_{R}_24h.npz"
+    if not os.path.exists(dz):
+        P(f"\n  [{R}] pred_dump 없음 -> (F) 건너뜀")
+        continue
+    z = np.load(dz)
+    y = z["y"].astype(bool); raw = z["raw"].astype(bool); tab = z["tabpfn"].astype(bool)
+    oday = z["oday"]
+    dates = np.datetime64("1980-01-01") + oday.astype("timedelta64[D]")
+    gain, loss, both = (~raw & tab & y), (raw & ~tab & y), (raw & tab & y)
+
+    dmap, daily = load_precip(R)
+    idx = np.array([dmap.get(d, -1) for d in dates])
+    nxt = np.array([dmap.get(d + np.timedelta64(1, "D"), -1) for d in dates])
+    P24 = np.where(idx >= 0, daily[np.clip(idx, 0, len(daily) - 1)], np.nan)
+    P48 = P24 + np.where(nxt >= 0, daily[np.clip(nxt, 0, len(daily) - 1)], np.nan)
+
+    P("")
+    P(f"  ####### [{R}]")
+    P("")
+    P("  표 8. 원 예보와 모델의 판정 이동 (24시간 기준, 테스트블록 n=%d)" % len(y))
+    P("  " + "-" * 84)
+    P("  %-24s %6s | %-24s | %-24s" % ("구분", "건수", "온셋일 강수 중앙(평균) mm",
+                                        "이틀 강수 중앙(평균) mm"))
+    P("  " + "-" * 84)
+    for lab, m in [("둘 다 판정", both), ("회수 (모델만 판정)", gain),
+                   ("손실 (원 예보만 판정)", loss)]:
+        a, b = P24[m], P48[m]
+        P("  %-24s %6d | %10.2f (%6.2f)      | %10.2f (%6.2f)"
+          % (lab, int(m.sum()), np.nanmedian(a), np.nanmean(a),
+             np.nanmedian(b), np.nanmean(b)))
+    fr, ft = int((raw & ~y).sum()), int((tab & ~y).sum())
+    P("  %-24s %6s | %-24s | %-24s" % ("오경보 (원예보 → 모델)", f"{fr} → {ft}", "—", "—"))
+    P("  " + "-" * 84)
+    for lab, arr in [("온셋일", P24), ("이틀", P48)]:
+        g, l = arr[gain], arr[loss]
+        if len(g) and len(l):
+            pv = stats.mannwhitneyu(g[~np.isnan(g)], l[~np.isnan(l)],
+                                    alternative="two-sided")[1]
+            P("  회수 vs 손실 %s 강수  Mann-Whitney p=%.2e" % (lab, pv))
+    ng, nl = int(gain.sum()), int(loss.sum())
+    P("  McNemar 정확검정 (회수 %d 대 손실 %d)  p=%.4f"
+      % (ng, nl, float(stats.binomtest(ng, ng + nl, 0.5).pvalue)))
+
+    if R != "ca":
+        continue
+
+    P("")
+    P("  표 9. 회수·손실 이벤트의 관측 첨두유량 (cfs 중앙값)")
+    P("  " + "-" * 84)
+    P("  %-30s %10s %10s %10s %8s" % ("유역 (거리)", "둘 다", "회수", "손실", "p"))
+    P("  " + "-" * 84)
+    ranks = []
+    for sid, (nm, dist) in GAUGE.items():
+        D = load_q(sid)
+        Q = np.array([max([D.get(d + np.timedelta64(k, "D"), np.nan) for k in (0, 1, 2)])
+                      for d in dates])
+        ok = ~np.isnan(Q)
+        qb, qg, ql = Q[both & ok], Q[gain & ok], Q[loss & ok]
+        pv = (stats.mannwhitneyu(qg, ql, alternative="two-sided")[1]
+              if len(qg) and len(ql) else np.nan)
+        P("  %-30s %10.1f %10.1f %10.1f %8.3f"
+          % (f"{nm} ({dist:.1f} km)", np.median(qb), np.median(qg), np.median(ql), pv))
+        ranks.append([np.median(qb), np.median(qg), np.median(ql)])
+    P("  " + "-" * 84)
+    fr_ = stats.friedmanchisquare(*np.array(ranks).T)
+    P("  Friedman(3군) chi2=%.3f  p=%.4f" % (fr_.statistic, fr_.pvalue))
+    wl = stats.wilcoxon([r[1] for r in ranks], [r[2] for r in ranks])
+    P("  회수 vs 손실 Wilcoxon signed-rank p=%.4f  (유역 4개 -> 부호검정 최소 p=0.125)"
+      % wl.pvalue)
+    nlow = sum(1 for r in ranks if r[1] < r[0])
+    P("  회수가 '둘 다 판정'보다 낮은 유역 %d/4" % nlow)
+
+    P("")
+    P("  표 10. 실제 지속 이벤트의 수문량 중 예보가 포착하는 비중")
+    P("  " + "-" * 84)
+    P("  %-32s %14s %20s %20s" % ("항목", "실제 지속 전체", "원 예보", "모델"))
+    P("  " + "-" * 84)
+    for lab, arr in [("온셋일 총강수 (mm)", P24), ("이틀 총강수 (mm)", P48)]:
+        tot = np.nansum(arr[y]); r_ = np.nansum(arr[y & raw]); t_ = np.nansum(arr[y & tab])
+        P("  %-32s %14.1f %12.1f (%4.1f%%) %12.1f (%4.1f%%)"
+          % (lab, tot, r_, 100 * r_ / tot, t_, 100 * t_ / tot))
+    for sid, (nm, dist) in GAUGE.items():
+        D = load_q(sid)
+        Q = np.array([max([D.get(d + np.timedelta64(k, "D"), np.nan) for k in (0, 1, 2)])
+                      for d in dates])
+        ok = ~np.isnan(Q)
+        tot = Q[y & ok].sum(); r_ = Q[y & raw & ok].sum(); t_ = Q[y & tab & ok].sum()
+        P("  %-32s %14.0f %12.0f (%4.1f%%) %12.0f (%4.1f%%)"
+          % (f"{nm} 첨두유량 합 (cfs)", tot, r_, 100 * r_ / tot, t_, 100 * t_ / tot))
+    P("  " + "-" * 84)
+    P("  실제 지속 %d건 중 원 예보 %d건, 모델 %d건 포착"
+      % (int(y.sum()), int((y & raw).sum()), int((y & tab).sum())))
